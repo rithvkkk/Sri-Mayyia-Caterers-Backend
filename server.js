@@ -113,6 +113,59 @@ const agencySchema = new mongoose.Schema({
 });
 const Agency = mongoose.model('Agency', agencySchema);
 
+// 6b. Vessel / Equipment
+const vesselSchema = new mongoose.Schema({
+  _id: { type: String, required: true },
+  name: { type: String, required: true },
+  category: { type: String, required: true }, // Cooking Vessel, Serving Gear, Utensils, Heating & Fuel
+  totalQty: { type: Number, required: true },
+  availableQty: { type: Number, required: true },
+  inUseQty: { type: Number, default: 0 },
+  damagedQty: { type: Number, default: 0 },
+  location: { type: String, default: 'Main Store' },
+  valuePerUnit: { type: Number, default: 0 }
+});
+const Vessel = mongoose.model('Vessel', vesselSchema);
+
+// 6c. Provision / Dry Grocery
+const provisionSchema = new mongoose.Schema({
+  _id: { type: String, required: true },
+  name: { type: String, required: true },
+  category: { type: String, required: true }, // Grocery, Ghee & Oils, Spices & Condiments, Dry Fruits
+  unit: { type: String, required: true }, // kg, ltr, bag, pkt
+  stockQty: { type: Number, required: true },
+  reorderLevel: { type: Number, required: true },
+  costPerUnit: { type: Number, required: true },
+  supplierId: { type: String, default: '' }
+});
+const Provision = mongoose.model('Provision', provisionSchema);
+
+// 6d. Vegetable / Fresh Produce
+const vegetableSchema = new mongoose.Schema({
+  _id: { type: String, required: true },
+  name: { type: String, required: true },
+  category: { type: String, required: true }, // Vegetable, Fruit, Dairy & Fresh, Herbs & Greens
+  unit: { type: String, required: true }, // kg, ltr, bunch, box
+  stockQty: { type: Number, required: true },
+  marketPrice: { type: Number, required: true },
+  freshnessStatus: { type: String, default: 'Fresh' }, // Fresh, 1-2 Days Left, Urgent Use
+  supplierId: { type: String, default: '' }
+});
+const Vegetable = mongoose.model('Vegetable', vegetableSchema);
+
+// 6e. Labour Worker Master
+const labourWorkerSchema = new mongoose.Schema({
+  _id: { type: String, required: true },
+  name: { type: String, required: true },
+  role: { type: String, required: true }, // Chef, Assistant Chef, Captain/Supervisor, Waiter, Kitchen Helper, Cleaner
+  phone: { type: String, required: true },
+  dailyRate: { type: Number, required: true },
+  agencyId: { type: String, default: 'Direct Hire' },
+  type: { type: String, default: 'Direct' }, // Direct, Agency
+  status: { type: String, default: 'Active' } // Active, On Leave, Inactive
+});
+const LabourWorker = mongoose.model('LabourWorker', labourWorkerSchema);
+
 // 7. Company Profile
 const companyProfileSchema = new mongoose.Schema({
   _id: { type: String, default: 'current_profile' },
@@ -273,6 +326,11 @@ createCRUDRoutes(app, '/api/suppliers', Supplier);
 createCRUDRoutes(app, '/api/labor-rates', LaborRate);
 createCRUDRoutes(app, '/api/agencies', Agency);
 createCRUDRoutes(app, '/api/events', Event);
+createCRUDRoutes(app, '/api/vessels', Vessel);
+createCRUDRoutes(app, '/api/provisions', Provision);
+createCRUDRoutes(app, '/api/vegetables', Vegetable);
+createCRUDRoutes(app, '/api/labour-workers', LabourWorker);
+
 
 // Secure /api/users endpoints with hashing
 app.get('/api/users', async (req, res) => {
@@ -380,7 +438,11 @@ app.post('/api/seed', async (req, res) => {
       Agency.deleteMany({}),
       Event.deleteMany({}),
       CompanyProfile.deleteMany({}),
-      User.deleteMany({})
+      User.deleteMany({}),
+      Vessel.deleteMany({}),
+      Provision.deleteMany({}),
+      Vegetable.deleteMany({}),
+      LabourWorker.deleteMany({})
     ]);
 
     // 2. Mock Data Definitions
@@ -686,6 +748,43 @@ app.post('/api/seed', async (req, res) => {
       { _id: 'agency', password: crypto.createHash('sha256').update('agency123').digest('hex'), role: 'Agency' }
     ];
 
+    const initialVessels = [
+      { _id: 'ves_1', name: 'Aluminium Degchi (100 Litre)', category: 'Cooking Vessel', totalQty: 12, availableQty: 10, inUseQty: 2, damagedQty: 0, location: 'Kitchen Store A', valuePerUnit: 8500 },
+      { _id: 'ves_2', name: 'Brass Biryani Handi (50L)', category: 'Cooking Vessel', totalQty: 8, availableQty: 6, inUseQty: 2, damagedQty: 0, location: 'Kitchen Store A', valuePerUnit: 12000 },
+      { _id: 'ves_3', name: 'Stainless Steel Kadai (Big)', category: 'Cooking Vessel', totalQty: 15, availableQty: 12, inUseQty: 3, damagedQty: 0, location: 'Kitchen Store B', valuePerUnit: 4500 },
+      { _id: 'ves_4', name: 'Chafing Dishes Roll-Top Set', category: 'Serving Gear', totalQty: 30, availableQty: 25, inUseQty: 5, damagedQty: 0, location: 'Banquet Store', valuePerUnit: 3200 },
+      { _id: 'ves_5', name: 'Thermal Hot Transport Boxes (80L)', category: 'Serving Gear', totalQty: 20, availableQty: 18, inUseQty: 2, damagedQty: 0, location: 'Logistics Bay', valuePerUnit: 6500 },
+      { _id: 'ves_6', name: 'Royal Melamine Dinner Plates (Set of 100)', category: 'Utensils', totalQty: 15, availableQty: 14, inUseQty: 1, damagedQty: 0, location: 'Crockery Rack', valuePerUnit: 4800 },
+      { _id: 'ves_7', name: 'Commercial 3-Burner Gas Stove', category: 'Heating & Fuel', totalQty: 6, availableQty: 5, inUseQty: 1, damagedQty: 0, location: 'Kitchen Store B', valuePerUnit: 14500 }
+    ];
+
+    const initialProvisions = [
+      { _id: 'prv_1', name: 'Royal Aged Basmati Rice', category: 'Grocery', unit: 'kg', stockQty: 450, reorderLevel: 100, costPerUnit: 110, supplierId: 's1' },
+      { _id: 'prv_2', name: 'Premium Whole Wheat Atta', category: 'Grocery', unit: 'kg', stockQty: 300, reorderLevel: 75, costPerUnit: 45, supplierId: 's1' },
+      { _id: 'prv_3', name: 'Pure Cow Desi Ghee', category: 'Ghee & Oils', unit: 'kg', stockQty: 85, reorderLevel: 25, costPerUnit: 650, supplierId: 's2' },
+      { _id: 'prv_4', name: 'Refined Groundnut Oil', category: 'Ghee & Oils', unit: 'ltr', stockQty: 220, reorderLevel: 50, costPerUnit: 145, supplierId: 's1' },
+      { _id: 'prv_5', name: 'Shahi Garam Masala Blend', category: 'Spices & Condiments', unit: 'kg', stockQty: 18, reorderLevel: 5, costPerUnit: 420, supplierId: 's1' },
+      { _id: 'prv_6', name: 'Almonds & Cashew Nuts Mix', category: 'Dry Fruits', unit: 'kg', stockQty: 35, reorderLevel: 10, costPerUnit: 850, supplierId: 's1' }
+    ];
+
+    const initialVegetables = [
+      { _id: 'veg_1', name: 'Nashik Red Onions', category: 'Vegetable', unit: 'kg', stockQty: 250, marketPrice: 35, freshnessStatus: 'Fresh', supplierId: 's3' },
+      { _id: 'veg_2', name: 'Fresh Farm Potatoes', category: 'Vegetable', unit: 'kg', stockQty: 300, marketPrice: 30, freshnessStatus: 'Fresh', supplierId: 's3' },
+      { _id: 'veg_3', name: 'Hybrid Tomatoes', category: 'Vegetable', unit: 'kg', stockQty: 120, marketPrice: 55, freshnessStatus: 'Fresh', supplierId: 's3' },
+      { _id: 'veg_4', name: 'Fresh Cottage Cheese (Paneer)', category: 'Dairy & Fresh', unit: 'kg', stockQty: 60, marketPrice: 380, freshnessStatus: 'Fresh', supplierId: 's2' },
+      { _id: 'veg_5', name: 'Fresh Mint & Coriander Leaves', category: 'Herbs & Greens', unit: 'bunch', stockQty: 80, marketPrice: 15, freshnessStatus: 'Fresh', supplierId: 's3' },
+      { _id: 'veg_6', name: 'Seasonal Assorted Cut Fruits', category: 'Fruit', unit: 'kg', stockQty: 45, marketPrice: 120, freshnessStatus: '1-2 Days Left', supplierId: 's3' }
+    ];
+
+    const initialLabourWorkers = [
+      { _id: 'lw_1', name: 'Master Chef Rameshwar Sharma', role: 'Head Chef', phone: '+91 98765 12001', dailyRate: 3500, agencyId: 'Direct Hire', type: 'Direct', status: 'Active' },
+      { _id: 'lw_2', name: 'Sanjay Verma', role: 'Assistant Chef', phone: '+91 98765 12002', dailyRate: 2200, agencyId: 'Direct Hire', type: 'Direct', status: 'Active' },
+      { _id: 'lw_3', name: 'Rajesh Kumar', role: 'Captain/Supervisor', phone: '+91 98111 22233', dailyRate: 1400, agencyId: 'a1', type: 'Agency', status: 'Active' },
+      { _id: 'lw_4', name: 'Vikram Singh', role: 'Waiter / Service Staff', phone: '+91 98111 22234', dailyRate: 900, agencyId: 'a1', type: 'Agency', status: 'Active' },
+      { _id: 'lw_5', name: 'Amit Patel', role: 'Kitchen Helper', phone: '+91 98980 44456', dailyRate: 750, agencyId: 'a2', type: 'Agency', status: 'Active' },
+      { _id: 'lw_6', name: 'Dinesh Solanki', role: 'Utility Cleaner', phone: '+91 98980 44457', dailyRate: 650, agencyId: 'a2', type: 'Agency', status: 'Active' }
+    ];
+
     // 3. Create items in Atlas
     await Promise.all([
       Venue.create(initialVenues),
@@ -696,7 +795,11 @@ app.post('/api/seed', async (req, res) => {
       Agency.create(initialAgencies),
       Event.create(initialEvents),
       CompanyProfile.create(defaultProfile),
-      User.create(initialUsers)
+      User.create(initialUsers),
+      Vessel.create(initialVessels),
+      Provision.create(initialProvisions),
+      Vegetable.create(initialVegetables),
+      LabourWorker.create(initialLabourWorkers)
     ]);
 
     res.json({ success: true, message: 'Seeded Cloud Database successfully for Sri Mayyia Caterers' });
