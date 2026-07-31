@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
 global.crypto = require('crypto');
 require('dotenv').config();
 
@@ -376,8 +377,8 @@ app.get('/api/users', async (req, res) => {
 app.post('/api/users', async (req, res) => {
   try {
     const { id, password, role } = req.body;
-    const hashedPassword = crypto.createHash('sha256').update(password).digest('hex');
-    const user = await User.create({ _id: id, password: hashedPassword, role });
+    const hashedPassword = bcrypt.hashSync(password, 10);
+    const user = await User.create({ _id: id.toLowerCase(), password: hashedPassword, role });
     res.status(201).json({ id: user._id, role: user.role, password: '••••••••' });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -389,7 +390,7 @@ app.put('/api/users/:id', async (req, res) => {
     const { password, role } = req.body;
     const updateData = { role };
     if (password && password !== '••••••••') {
-      updateData.password = crypto.createHash('sha256').update(password).digest('hex');
+      updateData.password = bcrypt.hashSync(password, 10);
     }
     const updated = await User.findByIdAndUpdate(req.params.id, updateData, { new: true });
     if (!updated) return res.status(404).json({ error: 'User not found' });
@@ -409,7 +410,7 @@ app.delete('/api/users/:id', async (req, res) => {
   }
 });
 
-// Dedicated login validation route
+// Dedicated login validation route using Bcrypt Hash comparison
 app.post('/api/users/login', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -420,8 +421,21 @@ app.post('/api/users/login', async (req, res) => {
     if (!user) {
       return res.json({ success: false, message: 'Invalid credentials' });
     }
-    const inputHash = crypto.createHash('sha256').update(password).digest('hex');
-    if (user.password === inputHash) {
+
+    let isValid = false;
+    if (user.password.startsWith('$2a$') || user.password.startsWith('$2b$')) {
+      isValid = bcrypt.compareSync(password, user.password);
+    } else {
+      // Automatic upgrade from legacy SHA-256 / plaintext to Bcrypt Hash
+      const inputHash = crypto.createHash('sha256').update(password).digest('hex');
+      if (user.password === password || user.password === inputHash) {
+        isValid = true;
+        user.password = bcrypt.hashSync(password, 10);
+        await user.save().catch(() => null);
+      }
+    }
+
+    if (isValid) {
       return res.json({ success: true, role: user.role });
     }
     res.json({ success: false, message: 'Invalid credentials' });
@@ -722,12 +736,9 @@ app.post('/api/seed', async (req, res) => {
       currency: '₹'
     };
 
+    const adminPass = process.env.INITIAL_ADMIN_PASSWORD || '$2a$10$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeg6Lruj3vjPGga31lW';
     const initialUsers = [
-      { _id: 'admin', password: crypto.createHash('sha256').update('admin123').digest('hex'), role: 'Admin' },
-      { _id: 'manager', password: crypto.createHash('sha256').update('manager123').digest('hex'), role: 'Manager' },
-      { _id: 'chef', password: crypto.createHash('sha256').update('chef123').digest('hex'), role: 'Chef' },
-      { _id: 'accountant', password: crypto.createHash('sha256').update('accountant123').digest('hex'), role: 'Accountant' },
-      { _id: 'agency', password: crypto.createHash('sha256').update('agency123').digest('hex'), role: 'Agency' }
+      { _id: 'admin', password: adminPass.startsWith('$2a$') ? adminPass : bcrypt.hashSync(adminPass, 10), role: 'Admin' }
     ];
 
     const initialVessels = [
