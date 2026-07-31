@@ -494,139 +494,84 @@ app.post('/api/seed', async (req, res) => {
     ];
 
     const initialDishes = [
-      {
-        _id: 'd1',
-        name: 'Paneer Tikka Angara',
-        category: 'Starters',
-        price: 180,
-        recipe: [
-          { materialId: 'rm9', quantity: 0.12 },
-          { materialId: 'rm11', quantity: 0.02 },
-          { materialId: 'rm4', quantity: 0.01 },
-          { materialId: 'rm5', quantity: 0.015 },
-          { materialId: 'rm21', quantity: 0.05 }
-        ]
-      },
-      {
-        _id: 'd2',
-        name: 'Veg Manchurian Dry',
-        category: 'Starters',
-        price: 150,
-        recipe: [
-          { materialId: 'rm15', quantity: 0.10 },
-          { materialId: 'rm8', quantity: 0.02 },
-          { materialId: 'rm2', quantity: 0.03 },
-          { materialId: 'rm5', quantity: 0.02 },
-          { materialId: 'rm20', quantity: 0.005 }
-        ]
-      },
-      {
-        _id: 'd3',
-        name: 'Hara Bhara Kabab',
-        category: 'Starters',
-        price: 140,
-        recipe: [
-          { materialId: 'rm15', quantity: 0.08 },
-          { materialId: 'rm16', quantity: 0.05 },
-          { materialId: 'rm5', quantity: 0.025 },
-          { materialId: 'rm4', quantity: 0.005 }
-        ]
-      },
-      {
-        _id: 'd4',
-        name: 'Dal Makhani Special',
-        category: 'Mains',
-        price: 220,
-        recipe: [
-          { materialId: 'rm6', quantity: 0.08 },
-          { materialId: 'rm10', quantity: 0.025 },
-          { materialId: 'rm11', quantity: 0.02 },
-          { materialId: 'rm4', quantity: 0.008 },
-          { materialId: 'rm20', quantity: 0.008 }
-        ]
-      },
-      {
-        _id: 'd5',
-        name: 'Shahi Kadhai Paneer',
-        category: 'Mains',
-        price: 250,
-        recipe: [
-          { materialId: 'rm9', quantity: 0.12 },
-          { materialId: 'rm17', quantity: 0.06 },
-          { materialId: 'rm11', quantity: 0.015 },
-          { materialId: 'rm4', quantity: 0.01 },
-          { materialId: 'rm5', quantity: 0.015 },
-          { materialId: 'rm20', quantity: 0.006 }
-        ]
-      },
-      {
-        _id: 'd6',
-        name: 'Jeera Rice / Veg Pulao',
-        category: 'Mains',
-        price: 130,
-        recipe: [
-          { materialId: 'rm1', quantity: 0.10 },
-          { materialId: 'rm15', quantity: 0.04 },
-          { materialId: 'rm14', quantity: 0.01 },
-          { materialId: 'rm20', quantity: 0.004 }
-        ]
-      },
-      {
-        _id: 'd7',
-        name: 'Butter Naan / Tandoori Roti',
-        category: 'Mains',
-        price: 40,
-        recipe: [
-          { materialId: 'rm2', quantity: 0.08 },
-          { materialId: 'rm10', quantity: 0.015 },
-          { materialId: 'rm21', quantity: 0.06 }
-        ]
-      },
-      {
-        _id: 'd8',
-        name: 'Gulab Jamun (Double)',
-        category: 'Desserts',
-        price: 80,
-        recipe: [
-          { materialId: 'rm13', quantity: 0.06 },
-          { materialId: 'rm3', quantity: 0.10 },
-          { materialId: 'rm14', quantity: 0.015 },
-          { materialId: 'rm20', quantity: 0.008 }
-        ]
-      },
-      {
-        _id: 'd9',
-        name: 'Kesar Pista Ice Cream',
-        category: 'Desserts',
-        price: 90,
-        recipe: [
-          { materialId: 'rm12', quantity: 0.15 },
-          { materialId: 'rm3', quantity: 0.02 },
-          { materialId: 'rm19', quantity: 0.01 }
-        ]
-      },
-      {
-        _id: 'd10',
-        name: 'Fresh Mint Mojito',
-        category: 'Beverages',
-        price: 100,
-        recipe: [
-          { materialId: 'rm18', quantity: 0.05 },
-          { materialId: 'rm3', quantity: 0.025 }
-        ]
-      },
-      {
-        _id: 'd11',
-        name: 'Masala Shahi Tea',
-        category: 'Beverages',
-        price: 40,
-        recipe: [
-          { materialId: 'rm12', quantity: 0.08 },
-          { materialId: 'rm7', quantity: 0.006 },
-          { materialId: 'rm3', quantity: 0.015 },
-          { materialId: 'rm4', quantity: 0.002 }
-        ]
-      }
+      // 1. Authentic Andhra Lunch
+      { _id: 'd_a1', name: 'Poornam Borellu', category: 'Sweets & Desserts', price: 60, recipe: [{ materialId: 'rm3', quantity: 0.05 }, { materialId: 'rm14', quantity: 0.01 }] },
+      { _id: 'd_a2', name: 'Dry Fruit Jaggery Puthurekulu', category: 'Sweets & Desserts', price: 90, recipe: [{ materialId: 'rm3', quantity: 0.04 }, { materialId: 'rm14', quantity: 0.02 }] },
+      { _id: 'd_a3', name: 'Madtha Kaja', category: 'Sweets & Desserts', price: 50, recipe: [{ materialId: 'rm2', quantity: 0.06 }, { materialId: 'rm3', quantity: 0.05 }] },
+      { _id: 'd_a4', name: 'Kurban Ka Meeta', category: 'Sweets & Desserts', price: 70, recipe: [{ materialId: 'rm12', quantity: 0.1 }, { materialId: 'rm3', quantity: 0.04 }] },
+      { _id: 'd_a5', name: 'Sabsige Beeyam Parvanam', category: 'Sweets & Desserts', price: 60, recipe: [{ materialId: 'rm1', quantity: 0.05 }, { materialId: 'rm12', quantity: 0.1 }] },
+      { _id: 'd_a6', name: 'Sabsige Masala Roti with Chutney', category: 'Breads & Live Stalls', price: 55, recipe: [{ materialId: 'rm2', quantity: 0.08 }, { materialId: 'rm5', quantity: 0.01 }] },
+      { _id: 'd_a7', name: 'Rumali Roti', category: 'Breads & Live Stalls', price: 35, recipe: [{ materialId: 'rm2', quantity: 0.07 }] },
+      { _id: 'd_a8', name: 'MLA Pesarattu', category: 'Breads & Live Stalls', price: 75, recipe: [{ materialId: 'rm6', quantity: 0.08 }, { materialId: 'rm5', quantity: 0.015 }] },
+      { _id: 'd_a9', name: 'Channa Paneer Masala', category: 'Curries, Rice & Sides', price: 140, recipe: [{ materialId: 'rm9', quantity: 0.08 }, { materialId: 'rm6', quantity: 0.05 }] },
+      { _id: 'd_a10', name: 'Raw Jackfruit Biriyani', category: 'Curries, Rice & Sides', price: 180, recipe: [{ materialId: 'rm1', quantity: 0.12 }, { materialId: 'rm15', quantity: 0.08 }] },
+      { _id: 'd_a11', name: 'Raitha', category: 'Curries, Rice & Sides', price: 30, recipe: [{ materialId: 'rm12', quantity: 0.05 }] },
+      { _id: 'd_a12', name: 'Coconut Milk Rice', category: 'Curries, Rice & Sides', price: 120, recipe: [{ materialId: 'rm1', quantity: 0.1 }, { materialId: 'rm14', quantity: 0.01 }] },
+      { _id: 'd_a13', name: 'Puliyora - Side', category: 'Curries, Rice & Sides', price: 70, recipe: [{ materialId: 'rm1', quantity: 0.08 }, { materialId: 'rm4', quantity: 0.01 }] },
+      { _id: 'd_a14', name: 'Kanda Bacchali', category: 'Curries, Rice & Sides', price: 95, recipe: [{ materialId: 'rm15', quantity: 0.1 }] },
+      { _id: 'd_a15', name: 'Guttuvankai Fry', category: 'Curries, Rice & Sides', price: 110, recipe: [{ materialId: 'rm15', quantity: 0.12 }, { materialId: 'rm5', quantity: 0.02 }] },
+      { _id: 'd_a16', name: 'Bendikai Fry', category: 'Curries, Rice & Sides', price: 85, recipe: [{ materialId: 'rm15', quantity: 0.1 }] },
+      { _id: 'd_a17', name: 'Veg Kosambari', category: 'Curries, Rice & Sides', price: 40, recipe: [{ materialId: 'rm6', quantity: 0.03 }] },
+      { _id: 'd_a18', name: 'White Rice', category: 'Curries, Rice & Sides', price: 40, recipe: [{ materialId: 'rm1', quantity: 0.12 }] },
+      { _id: 'd_a19', name: 'Mukkulu Pulusu', category: 'Curries, Rice & Sides', price: 80, recipe: [{ materialId: 'rm15', quantity: 0.08 }] },
+      { _id: 'd_a20', name: 'Mammidikaya Pappu + Ghee', category: 'Curries, Rice & Sides', price: 90, recipe: [{ materialId: 'rm6', quantity: 0.06 }, { materialId: 'rm14', quantity: 0.01 }] },
+      { _id: 'd_a21', name: 'Vuluvulu Charu + Cream', category: 'Curries, Rice & Sides', price: 75, recipe: [{ materialId: 'rm6', quantity: 0.05 }, { materialId: 'rm11', quantity: 0.01 }] },
+      { _id: 'd_a22', name: 'Tomato Miriyala Rasam', category: 'Curries, Rice & Sides', price: 45, recipe: [{ materialId: 'rm17', quantity: 0.05 }] },
+
+      // 2. Evening Snacks
+      { _id: 'd_s1', name: 'Mohabath Ka Sharabeth', category: 'Welcome Drinks & Refreshments', price: 60, recipe: [{ materialId: 'rm12', quantity: 0.15 }, { materialId: 'rm3', quantity: 0.02 }] },
+      { _id: 'd_s2', name: 'Filter Coffee', category: 'Welcome Drinks & Refreshments', price: 30, recipe: [{ materialId: 'rm7', quantity: 0.01 }, { materialId: 'rm12', quantity: 0.1 }] },
+      { _id: 'd_s3', name: 'Masala Tea', category: 'Welcome Drinks & Refreshments', price: 25, recipe: [{ materialId: 'rm7', quantity: 0.008 }, { materialId: 'rm12', quantity: 0.08 }] },
+      { _id: 'd_s4', name: 'Shavige Rawa Bath', category: 'Snacks & Starters', price: 50, recipe: [{ materialId: 'rm2', quantity: 0.06 }, { materialId: 'rm15', quantity: 0.03 }] },
+      { _id: 'd_s5', name: 'Dragon Roll', category: 'Snacks & Starters', price: 90, recipe: [{ materialId: 'rm15', quantity: 0.06 }, { materialId: 'rm8', quantity: 0.01 }] },
+      { _id: 'd_s6', name: 'Sante Bonda', category: 'Snacks & Starters', price: 45, recipe: [{ materialId: 'rm16', quantity: 0.05 }] },
+      { _id: 'd_s7', name: 'Beetroot Alu Cutlet', category: 'Snacks & Starters', price: 55, recipe: [{ materialId: 'rm16', quantity: 0.06 }] },
+      { _id: 'd_s8', name: 'Paneer Grill', category: 'Snacks & Starters', price: 110, recipe: [{ materialId: 'rm9', quantity: 0.1 }] },
+      { _id: 'd_s9', name: 'Bread Samosa', category: 'Snacks & Starters', price: 40, recipe: [{ materialId: 'rm16', quantity: 0.05 }, { materialId: 'rm2', quantity: 0.03 }] },
+
+      // 3. Rajasthani Dinner
+      { _id: 'd_r1', name: 'Tomato Coriander Seeds Shorba', category: 'Soups & Starters', price: 65, recipe: [{ materialId: 'rm17', quantity: 0.08 }] },
+      { _id: 'd_r2', name: 'Mughlai Zaffrani Soup', category: 'Soups & Starters', price: 85, recipe: [{ materialId: 'rm11', quantity: 0.02 }, { materialId: 'rm12', quantity: 0.1 }] },
+      { _id: 'd_r3', name: 'Khakhra Sandwich', category: 'Soups & Starters', price: 55, recipe: [{ materialId: 'rm2', quantity: 0.04 }, { materialId: 'rm15', quantity: 0.03 }] },
+      { _id: 'd_r9', name: 'Dal Baati Churma', category: 'Breads & Main Course', price: 160, recipe: [{ materialId: 'rm2', quantity: 0.1 }, { materialId: 'rm6', quantity: 0.06 }, { materialId: 'rm14', quantity: 0.03 }] },
+      { _id: 'd_r10', name: 'Alu Capsicum Sabji', category: 'Breads & Main Course', price: 110, recipe: [{ materialId: 'rm16', quantity: 0.06 }, { materialId: 'rm17', quantity: 0.04 }] },
+      { _id: 'd_r13', name: 'Rajasthani Kadhi', category: 'Breads & Main Course', price: 90, recipe: [{ materialId: 'rm12', quantity: 0.1 }, { materialId: 'rm6', quantity: 0.03 }] },
+      { _id: 'd_r16', name: 'Laccha Paratha', category: 'Breads & Main Course', price: 45, recipe: [{ materialId: 'rm2', quantity: 0.08 }, { materialId: 'rm14', quantity: 0.01 }] },
+      { _id: 'd_r19', name: 'Kacchi Haldi Ka Sabji', category: 'Breads & Main Course', price: 150, recipe: [{ materialId: 'rm15', quantity: 0.08 }, { materialId: 'rm14', quantity: 0.02 }] },
+      { _id: 'd_r26', name: 'Moong Dal Halwa', category: 'Sweets & Desserts', price: 90, recipe: [{ materialId: 'rm6', quantity: 0.05 }, { materialId: 'rm14', quantity: 0.02 }, { materialId: 'rm3', quantity: 0.04 }] },
+      { _id: 'd_r28', name: 'Malai Ghevar', category: 'Sweets & Desserts', price: 110, recipe: [{ materialId: 'rm2', quantity: 0.05 }, { materialId: 'rm11', quantity: 0.02 }] },
+
+      // 4. Tamil Nadu Style Breakfast
+      { _id: 'd_tn1', name: 'Kushboo Idly', category: 'Main Items', price: 40, recipe: [{ materialId: 'rm1', quantity: 0.05 }, { materialId: 'rm6', quantity: 0.02 }] },
+      { _id: 'd_tn2', name: 'Medhu Vadai', category: 'Main Items', price: 45, recipe: [{ materialId: 'rm6', quantity: 0.05 }, { materialId: 'rm5', quantity: 0.015 }] },
+      { _id: 'd_tn3', name: 'Onion Uttappam', category: 'Main Items', price: 60, recipe: [{ materialId: 'rm1', quantity: 0.06 }, { materialId: 'rm16', quantity: 0.03 }] },
+      { _id: 'd_tn7', name: 'Madras Ghee Ven Pongal', category: 'Main Items', price: 65, recipe: [{ materialId: 'rm1', quantity: 0.06 }, { materialId: 'rm6', quantity: 0.02 }, { materialId: 'rm14', quantity: 0.01 }] },
+      { _id: 'd_tn8', name: 'Tiffin Sambar', category: 'Sides & Gravies', price: 30, recipe: [{ materialId: 'rm6', quantity: 0.03 }, { materialId: 'rm15', quantity: 0.03 }] },
+
+      // 5. Lunch (Grand Royal Feast)
+      { _id: 'd_l1', name: 'Kesar Peni + Badam Milk', category: 'Sweets & Desserts', price: 90, recipe: [{ materialId: 'rm12', quantity: 0.15 }, { materialId: 'rm3', quantity: 0.03 }] },
+      { _id: 'd_l2', name: 'Matka Rajbhog', category: 'Sweets & Desserts', price: 80, recipe: [{ materialId: 'rm13', quantity: 0.05 }, { materialId: 'rm3', quantity: 0.03 }] },
+      { _id: 'd_l14', name: 'Amritsari Channa Masala', category: 'Breads & Main Course', price: 110, recipe: [{ materialId: 'rm6', quantity: 0.08 }] },
+      { _id: 'd_l17', name: 'Paneer Thalassery Biriyani in Clay Pot', category: 'Breads & Main Course', price: 190, recipe: [{ materialId: 'rm1', quantity: 0.12 }, { materialId: 'rm9', quantity: 0.08 }] },
+
+      // 6. Dinner (Multi-Cuisine Extravaganza)
+      { _id: 'd_d1', name: 'Ferrero Rocher Milkshake', category: 'Milkshakes & Mocktails', price: 140, recipe: [{ materialId: 'rm12', quantity: 0.15 }] },
+      { _id: 'd_d4', name: 'Sangria Fruit Mocktail', category: 'Milkshakes & Mocktails', price: 120, recipe: [{ materialId: 'rm19', quantity: 0.05 }] },
+      { _id: 'd_d12', name: 'Treat Paneer Coins', category: 'Finger Foods & Street Food', price: 120, recipe: [{ materialId: 'rm9', quantity: 0.08 }] },
+      { _id: 'd_d15', name: 'Pancharatna Pani Puri (5 Flavored Panis)', category: 'Finger Foods & Street Food', price: 85, recipe: [{ materialId: 'rm16', quantity: 0.05 }] },
+      { _id: 'd_d23', name: 'Cream of Badam Broccoli Soup', category: 'Savoury Spoon (Soups)', price: 95, recipe: [{ materialId: 'rm11', quantity: 0.02 }, { materialId: 'rm15', quantity: 0.06 }] },
+      { _id: 'd_d26', name: 'Turkish Kunafa', category: 'Fruit Mittai (Sweets)', price: 140, recipe: [{ materialId: 'rm2', quantity: 0.04 }, { materialId: 'rm3', quantity: 0.04 }, { materialId: 'rm14', quantity: 0.015 }] },
+      { _id: 'd_d45', name: 'Artisan Pasta (Red / White / Pink)', category: 'Global Cuisines (Roman)', price: 160, recipe: [{ materialId: 'rm2', quantity: 0.08 }, { materialId: 'rm11', quantity: 0.02 }] },
+      { _id: 'd_d47', name: 'Baked Veg Lasagna', category: 'Global Cuisines (Roman)', price: 190, recipe: [{ materialId: 'rm2', quantity: 0.08 }, { materialId: 'rm15', quantity: 0.06 }] },
+      { _id: 'd_d56', name: 'Burnt Garlic Veg Noodles', category: 'Global Cuisines (Chinese)', price: 140, recipe: [{ materialId: 'rm2', quantity: 0.08 }, { materialId: 'rm8', quantity: 0.01 }] },
+      { _id: 'd_d64', name: 'Nargisi Kofta Curry', category: 'Mughals & Nawabs', price: 170, recipe: [{ materialId: 'rm9', quantity: 0.06 }, { materialId: 'rm15', quantity: 0.05 }] },
+      { _id: 'd_d65', name: 'Mughlai Paneer Shahi', category: 'Mughals & Nawabs', price: 180, recipe: [{ materialId: 'rm9', quantity: 0.1 }, { materialId: 'rm11', quantity: 0.02 }] },
+      { _id: 'd_d81', name: 'Hyderabadi Cashew Biriyani', category: 'South Indian Specials', price: 210, recipe: [{ materialId: 'rm1', quantity: 0.12 }, { materialId: 'rm9', quantity: 0.05 }, { materialId: 'rm14', quantity: 0.015 }] },
+      { _id: 'd_d86', name: 'Live Podi Rice & Tokku Counter', category: 'South Indian Specials', price: 90, recipe: [{ materialId: 'rm1', quantity: 0.1 }, { materialId: 'rm4', quantity: 0.02 }] },
+      { _id: 'd_d102', name: 'Red Velvet Cake Pastry', category: 'Desserts & Fruits', price: 85, recipe: [{ materialId: 'rm2', quantity: 0.04 }, { materialId: 'rm3', quantity: 0.03 }] },
+      { _id: 'd_d105', name: 'Imported Fruits Garden (Dragon, Kiwi, Plum)', category: 'Desserts & Fruits', price: 140, recipe: [{ materialId: 'rm19', quantity: 0.15 }] },
+      { _id: 'd_d110', name: 'Mango Paan', category: 'Desserts & Fruits', price: 30, recipe: [] },
+      { _id: 'd_d113', name: 'Fire Paan', category: 'Desserts & Fruits', price: 40, recipe: [] }
     ];
 
     const initialSuppliers = [
@@ -637,109 +582,115 @@ app.post('/api/seed', async (req, res) => {
     ];
 
     const initialLaborRates = [
-      { _id: 'l1', type: 'Captain/Supervisor', rate: 1200 },
-      { _id: 'l2', type: 'Waiter / Service Staff', rate: 800 },
-      { _id: 'l3', type: 'Bartender', rate: 1500 },
-      { _id: 'l4', type: 'Kitchen Helper', rate: 700 },
-      { _id: 'l5', type: 'Utility Cleaner', rate: 600 }
+      { _id: 'l1', type: 'Captain/Supervisor', rate: 1400 },
+      { _id: 'l2', type: 'Waiter / Service Staff', rate: 900 },
+      { _id: 'l3', type: 'Bartender / Mixologist', rate: 1600 },
+      { _id: 'l4', type: 'Kitchen Helper', rate: 750 },
+      { _id: 'l5', type: 'Utility Cleaner', rate: 650 }
     ];
 
     const initialAgencies = [
       { _id: 'a1', name: 'Royal Hospitality Services', contact: 'Harsh Vyas', phone: '+91 98111 22233', categories: ['Waiter / Service Staff', 'Captain/Supervisor'] },
-      { _id: 'a2', name: 'Apex Event Staffing Co', contact: 'Nikhil Parmar', phone: '+91 98980 44455', categories: ['Bartender', 'Kitchen Helper', 'Utility Cleaner'] }
+      { _id: 'a2', name: 'Apex Event Staffing Co', contact: 'Nikhil Parmar', phone: '+91 98980 44455', categories: ['Bartender / Mixologist', 'Kitchen Helper', 'Utility Cleaner'] }
     ];
 
     const initialEvents = [
       {
         _id: 'EV-2026-001',
-        customer: { name: 'Anil Sharma', phone: '+91 98765 11111', email: 'anil.sharma@gmail.com' },
-        eventType: 'Wedding Reception',
+        customer: { name: 'Venkatesh Reddy', phone: '+91 98765 11111', email: 'venkatesh.reddy@gmail.com' },
+        eventType: 'Authentic Andhra Wedding Feast',
         venueId: 'v3',
         date: '2026-06-15',
         status: 'Completed',
         subFunctions: [
-          { id: 'sf-1', name: 'Wedding Lunch', guestCount: 400, menuItems: ['d1', 'd3', 'd4', 'd5', 'd6', 'd7', 'd8', 'd11'] },
-          { id: 'sf-2', name: 'Grand Reception Dinner', guestCount: 600, menuItems: ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'd7', 'd8', 'd9', 'd10', 'd11'] }
+          { id: 'sf-1', name: 'Traditional Andhra Lunch', guestCount: 500, menuItems: ['d_a1', 'd_a2', 'd_a6', 'd_a8', 'd_a9', 'd_a10', 'd_a12', 'd_a15', 'd_a18', 'd_a20', 'd_a22', 'd_a24', 'd_a31', 'd_a36', 'd_a37'] }
         ],
         execution: {
-          teamRoutes: {
-            'd1': 'internal', 'd2': 'outsourced', 'd3': 'internal', 'd4': 'internal', 'd5': 'agency',
-            'd6': 'internal', 'd7': 'agency', 'd8': 'internal', 'd9': 'outsourced', 'd10': 'agency', 'd11': 'internal'
-          },
-          dishStatuses: {
-            'd1': 'Served', 'd2': 'Served', 'd3': 'Served', 'd4': 'Served', 'd5': 'Served',
-            'd6': 'Served', 'd7': 'Served', 'd8': 'Served', 'd9': 'Served', 'd10': 'Served', 'd11': 'Served'
-          },
-          costs: { rawMaterialsCost: 285000, laborCost: 65000, venueRent: 200000, otherExpenses: 45000 }
+          teamRoutes: { 'd_a1': 'internal', 'd_a2': 'outsourced', 'd_a9': 'internal', 'd_a10': 'internal', 'd_a15': 'agency' },
+          dishStatuses: { 'd_a1': 'Served', 'd_a2': 'Served', 'd_a9': 'Served', 'd_a10': 'Served', 'd_a15': 'Served' },
+          costs: { rawMaterialsCost: 185000, laborCost: 45000, venueRent: 200000, otherExpenses: 25000 }
         },
         laborAllocations: [
-          { agencyId: 'a1', laborType: 'Captain/Supervisor', count: 4, shifts: 2, totalPayout: 9600, status: 'Paid' },
-          { agencyId: 'a1', laborType: 'Waiter / Service Staff', count: 30, shifts: 2, totalPayout: 48000, status: 'Paid' },
-          { agencyId: 'a2', laborType: 'Bartender', count: 4, shifts: 1, totalPayout: 6000, status: 'Paid' }
+          { agencyId: 'a1', laborType: 'Captain/Supervisor', count: 4, shifts: 2, totalPayout: 11200, status: 'Paid' },
+          { agencyId: 'a1', laborType: 'Waiter / Service Staff', count: 35, shifts: 2, totalPayout: 63000, status: 'Paid' }
         ],
         billing: {
-          pricePerPlate: 950, subtotal: 950000, taxRate: 18, taxAmount: 171000, totalAmount: 1121000,
-          advancePaid: 500000, balanceDue: 0, status: 'Fully Paid'
+          pricePerPlate: 950, subtotal: 475000, taxRate: 18, taxAmount: 85500, totalAmount: 560500,
+          advancePaid: 300000, balanceDue: 0, status: 'Fully Paid'
         }
       },
       {
         _id: 'EV-2026-002',
-        customer: { name: 'Preeti Patel', phone: '+91 99240 88888', email: 'preeti.patel@yahoo.com' },
-        eventType: '25th Anniversary Gala',
+        customer: { name: 'Priya Sundaram', phone: '+91 99240 88888', email: 'priya.sundaram@yahoo.com' },
+        eventType: 'Tamil Nadu Style Gala Breakfast & Evening High Tea',
         venueId: 'v1',
         date: '2026-07-28',
         status: 'Confirmed',
         subFunctions: [
-          { id: 'sf-3', name: 'Anniversary Dinner', guestCount: 250, menuItems: ['d1', 'd2', 'd5', 'd6', 'd7', 'd9', 'd10'] }
+          { id: 'sf-2', name: 'Tamil Nadu Traditional Breakfast', guestCount: 300, menuItems: ['d_tn1', 'd_tn2', 'd_tn3', 'd_tn7', 'd_tn8', 'd_tn9', 'd_tn12'] },
+          { id: 'sf-3', name: 'Evening High Tea & Refreshments', guestCount: 250, menuItems: ['d_s1', 'd_s2', 'd_s5', 'd_s8', 'd_s9', 'd_s12', 'd_s14'] }
         ],
         execution: {
-          teamRoutes: {
-            'd1': 'internal', 'd2': 'internal', 'd5': 'internal', 'd6': 'internal', 'd7': 'agency',
-            'd9': 'outsourced', 'd10': 'agency'
-          },
-          dishStatuses: {
-            'd1': 'Pending', 'd2': 'Pending', 'd5': 'Pending', 'd6': 'Pending', 'd7': 'Pending',
-            'd9': 'Pending', 'd10': 'Pending'
-          },
-          costs: { rawMaterialsCost: 85200, laborCost: 18600, venueRent: 150000, otherExpenses: 12000 }
+          teamRoutes: { 'd_tn1': 'internal', 'd_tn2': 'internal', 'd_tn7': 'internal', 'd_s5': 'outsourced', 'd_s8': 'agency' },
+          dishStatuses: { 'd_tn1': 'Preparing', 'd_tn2': 'Preparing', 'd_tn7': 'Preparing', 'd_s5': 'Pending', 'd_s8': 'Pending' },
+          costs: { rawMaterialsCost: 120000, laborCost: 28000, venueRent: 150000, otherExpenses: 15000 }
         },
         laborAllocations: [
-          { agencyId: 'a1', laborType: 'Captain/Supervisor', count: 2, shifts: 1, totalPayout: 2400, status: 'Verified' },
-          { agencyId: 'a1', laborType: 'Waiter / Service Staff', count: 15, shifts: 1, totalPayout: 12000, status: 'Verified' },
-          { agencyId: 'a2', laborType: 'Bartender', count: 2, shifts: 1, totalPayout: 3000, status: 'Verified' },
-          { agencyId: 'a2', laborType: 'Utility Cleaner', count: 2, shifts: 1, totalPayout: 1200, status: 'Pending' }
+          { agencyId: 'a1', laborType: 'Captain/Supervisor', count: 2, shifts: 1, totalPayout: 2800, status: 'Verified' },
+          { agencyId: 'a1', laborType: 'Waiter / Service Staff', count: 20, shifts: 1, totalPayout: 18000, status: 'Verified' }
         ],
         billing: {
-          pricePerPlate: 1200, subtotal: 300000, taxRate: 18, taxAmount: 54000, totalAmount: 354000,
-          advancePaid: 150000, balanceDue: 204000, status: 'Partially Paid'
+          pricePerPlate: 1100, subtotal: 605000, taxRate: 18, taxAmount: 108900, totalAmount: 713900,
+          advancePaid: 350000, balanceDue: 363900, status: 'Partially Paid'
         }
       },
       {
         _id: 'EV-2026-003',
-        customer: { name: 'Rohan Mehta (Adani Group)', phone: '+91 97129 33333', email: 'rohan.mehta@adani.com' },
-        eventType: 'Corporate Annual Meet',
-        venueId: 'v4',
-        date: '2026-08-10',
+        customer: { name: 'Vikramaditya Rathore', phone: '+91 97129 33333', email: 'v.rathore@rajasthantech.com' },
+        eventType: 'Royal Rajasthani Imperial Dinner',
+        venueId: 'v2',
+        date: '2026-08-20',
         status: 'Inquiry',
         subFunctions: [
-          { id: 'sf-4', name: 'Conference Lunch', guestCount: 120, menuItems: ['d3', 'd4', 'd6', 'd7', 'd8', 'd11'] }
+          { id: 'sf-4', name: 'Royal Rajasthani Banquet', guestCount: 400, menuItems: ['d_r1', 'd_r2', 'd_r3', 'd_r9', 'd_r10', 'd_r13', 'd_r16', 'd_r19', 'd_r26', 'd_r28'] }
         ],
         execution: {
-          teamRoutes: {
-            'd3': 'internal', 'd4': 'internal', 'd6': 'internal', 'd7': 'internal', 'd8': 'internal', 'd11': 'internal'
-          },
-          dishStatuses: {
-            'd3': 'Pending', 'd4': 'Pending', 'd6': 'Pending', 'd7': 'Pending', 'd8': 'Pending', 'd11': 'Pending'
-          },
-          costs: { rawMaterialsCost: 28400, laborCost: 6800, venueRent: 75000, otherExpenses: 5000 }
+          teamRoutes: { 'd_r1': 'internal', 'd_r9': 'internal', 'd_r19': 'internal', 'd_r28': 'outsourced' },
+          dishStatuses: { 'd_r1': 'Pending', 'd_r9': 'Pending', 'd_r19': 'Pending', 'd_r28': 'Pending' },
+          costs: { rawMaterialsCost: 195000, laborCost: 48000, venueRent: 120000, otherExpenses: 20000 }
         },
         laborAllocations: [
-          { agencyId: 'a1', laborType: 'Captain/Supervisor', count: 1, shifts: 1, totalPayout: 1200, status: 'Pending' },
-          { agencyId: 'a1', laborType: 'Waiter / Service Staff', count: 7, shifts: 1, totalPayout: 5600, status: 'Pending' }
+          { agencyId: 'a1', laborType: 'Captain/Supervisor', count: 3, shifts: 1, totalPayout: 4200, status: 'Pending' },
+          { agencyId: 'a1', laborType: 'Waiter / Service Staff', count: 30, shifts: 1, totalPayout: 27000, status: 'Pending' }
         ],
         billing: {
-          pricePerPlate: 850, subtotal: 102000, taxRate: 18, taxAmount: 18360, totalAmount: 120360,
-          advancePaid: 0, balanceDue: 120360, status: 'Unpaid'
+          pricePerPlate: 1400, subtotal: 560000, taxRate: 18, taxAmount: 100800, totalAmount: 660800,
+          advancePaid: 0, balanceDue: 660800, status: 'Unpaid'
+        }
+      },
+      {
+        _id: 'EV-2026-004',
+        customer: { name: 'Kavitha & Arvind Rao', phone: '+91 99887 66554', email: 'arvind.rao@techindia.io' },
+        eventType: 'Grand Multi-Cuisine Extravaganza Dinner',
+        venueId: 'v3',
+        date: '2026-09-12',
+        status: 'Confirmed',
+        subFunctions: [
+          { id: 'sf-5', name: 'Global Multi-Cuisine Gala Dinner', guestCount: 650, menuItems: ['d_d1', 'd_d4', 'd_d12', 'd_d15', 'd_d23', 'd_d26', 'd_d45', 'd_d47', 'd_d56', 'd_d64', 'd_d65', 'd_d81', 'd_d86', 'd_d102', 'd_d105', 'd_d110', 'd_d113'] }
+        ],
+        execution: {
+          teamRoutes: { 'd_d15': 'agency', 'd_d26': 'outsourced', 'd_d45': 'internal', 'd_d65': 'internal', 'd_d81': 'internal' },
+          dishStatuses: { 'd_d15': 'Pending', 'd_d26': 'Pending', 'd_d45': 'Pending', 'd_d65': 'Pending', 'd_d81': 'Pending' },
+          costs: { rawMaterialsCost: 340000, laborCost: 85000, venueRent: 200000, otherExpenses: 40000 }
+        },
+        laborAllocations: [
+          { agencyId: 'a1', laborType: 'Captain/Supervisor', count: 5, shifts: 2, totalPayout: 14000, status: 'Pending' },
+          { agencyId: 'a1', laborType: 'Waiter / Service Staff', count: 45, shifts: 2, totalPayout: 81000, status: 'Pending' },
+          { agencyId: 'a2', laborType: 'Bartender / Mixologist', count: 6, shifts: 1, totalPayout: 9600, status: 'Pending' }
+        ],
+        billing: {
+          pricePerPlate: 1850, subtotal: 1202500, taxRate: 18, taxAmount: 216450, totalAmount: 1418950,
+          advancePaid: 600000, balanceDue: 818950, status: 'Partially Paid'
         }
       }
     ];
