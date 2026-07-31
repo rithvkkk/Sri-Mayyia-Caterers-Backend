@@ -21,8 +21,12 @@ async function connectDB() {
   if (mongoose.connection.readyState === 1) {
     return mongoose.connection;
   }
+  const uri = process.env.MONGODB_URI || MONGODB_URI;
+  if (!uri) {
+    throw new Error('MONGODB_URI environment variable is missing in Vercel settings');
+  }
   console.log('🔄 Connecting to MongoDB Atlas...');
-  return mongoose.connect(MONGODB_URI, {
+  return mongoose.connect(uri, {
     serverSelectionTimeoutMS: 5000
   }).then((m) => {
     console.log('✅ Connected to MongoDB online');
@@ -821,16 +825,17 @@ app.post('/api/seed', async (req, res) => {
   }
 });
 
-// Start listening locally (non-blocking start so sandbox environments can run the process)
-app.listen(PORT, () => {
-  console.log(`👑 CaterFlow Enterprise API running on http://localhost:${PORT}`);
-  
-  if (MONGODB_URI) {
-    connectDB().catch(err => {
-      console.warn('⚠️ MongoDB Atlas connection warning (expected in sandboxed environments):', err.message);
-      console.warn('The API server is successfully running and will retry connection on client requests.');
-    });
-  } else {
-    console.error('❌ MONGODB_URI is not set in backend/.env!');
-  }
-});
+// Export Express app for Vercel Serverless Function execution
+if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`👑 CaterFlow Enterprise API running on http://localhost:${PORT}`);
+    
+    if (MONGODB_URI) {
+      connectDB().catch(err => {
+        console.warn('⚠️ MongoDB Atlas connection warning:', err.message);
+      });
+    }
+  });
+}
+
+module.exports = app;
