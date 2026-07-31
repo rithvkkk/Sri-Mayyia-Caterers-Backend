@@ -16,22 +16,37 @@ app.use(cors({
 app.options('*', cors());
 app.use(express.json());
 
-// Database connection helper
+// Cached Mongoose connection helper for Vercel Serverless Functions
+let cached = global.mongoose;
+if (!cached) {
+  cached = global.mongoose = { conn: null, promise: null };
+}
+
 async function connectDB() {
-  if (mongoose.connection.readyState === 1) {
-    return mongoose.connection;
+  if (cached.conn) {
+    return cached.conn;
   }
-  const uri = process.env.MONGODB_URI || MONGODB_URI;
-  if (!uri) {
-    throw new Error('MONGODB_URI environment variable is missing in Vercel settings');
+  if (!cached.promise) {
+    const uri = process.env.MONGODB_URI || MONGODB_URI;
+    if (!uri) {
+      throw new Error('MONGODB_URI environment variable is missing in Vercel settings');
+    }
+    console.log('🔄 Connecting to MongoDB Atlas...');
+    cached.promise = mongoose.connect(uri, {
+      serverSelectionTimeoutMS: 3000,
+      connectTimeoutMS: 3000
+    }).then((m) => {
+      console.log('✅ Connected to MongoDB online');
+      return m;
+    });
   }
-  console.log('🔄 Connecting to MongoDB Atlas...');
-  return mongoose.connect(uri, {
-    serverSelectionTimeoutMS: 5000
-  }).then((m) => {
-    console.log('✅ Connected to MongoDB online');
-    return m;
-  });
+  try {
+    cached.conn = await cached.promise;
+  } catch (e) {
+    cached.promise = null;
+    throw e;
+  }
+  return cached.conn;
 }
 
 // Middleware to ensure DB connection
