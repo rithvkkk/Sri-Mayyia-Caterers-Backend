@@ -417,28 +417,43 @@ app.post('/api/users/login', async (req, res) => {
     if (!username || !password) {
       return res.status(400).json({ error: 'Username and password required' });
     }
-    const user = await User.findById(username.toLowerCase());
+
+    const cleanUsername = String(username).trim().toLowerCase();
+    const cleanPassword = String(password).trim();
+
+    // Auto-seed default admin user if users collection in MongoDB is completely empty
+    const userCount = await User.countDocuments();
+    if (userCount === 0 && cleanUsername === 'admin') {
+      const defaultAdminPass = bcrypt.hashSync('admin123', 10);
+      await User.create({ _id: 'admin', password: defaultAdminPass, role: 'Admin' }).catch(() => null);
+    }
+
+    let user = await User.findOne({ _id: cleanUsername });
     if (!user) {
-      return res.json({ success: false, message: 'Invalid credentials' });
+      user = await User.findOne({ _id: new RegExp(`^${cleanUsername}$`, 'i') });
+    }
+
+    if (!user) {
+      return res.json({ success: false, message: 'User account does not exist in MongoDB' });
     }
 
     let isValid = false;
     if (user.password.startsWith('$2a$') || user.password.startsWith('$2b$')) {
-      isValid = bcrypt.compareSync(password, user.password);
+      isValid = bcrypt.compareSync(cleanPassword, user.password);
     } else {
       // Automatic upgrade from legacy SHA-256 / plaintext to Bcrypt Hash
-      const inputHash = crypto.createHash('sha256').update(password).digest('hex');
-      if (user.password === password || user.password === inputHash) {
+      const inputHash = crypto.createHash('sha256').update(cleanPassword).digest('hex');
+      if (user.password === cleanPassword || user.password === inputHash) {
         isValid = true;
-        user.password = bcrypt.hashSync(password, 10);
+        user.password = bcrypt.hashSync(cleanPassword, 10);
         await user.save().catch(() => null);
       }
     }
 
     if (isValid) {
-      return res.json({ success: true, role: user.role });
+      return res.json({ success: true, role: user.role, username: user._id });
     }
-    res.json({ success: false, message: 'Invalid credentials' });
+    res.json({ success: false, message: 'Invalid password provided' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
