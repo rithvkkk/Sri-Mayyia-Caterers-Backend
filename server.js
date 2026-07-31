@@ -15,7 +15,113 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
 }));
 app.options('*', cors());
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
+
+// ─────────────────── SECURITY MIDDLEWARES ───────────────────
+
+// 1. IP & User-based Rate Limiter (Sliding Window In-Memory Store)
+const rateLimitStore = new Map();
+
+// Periodic cleanup of stale rate-limit entries every 10 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, record] of rateLimitStore.entries()) {
+    if (now > record.resetTime) {
+      rateLimitStore.delete(key);
+    }
+  }
+}, 10 * 60 * 1000);
+
+const createRateLimiter = (options = {}) => {
+  const windowMs = options.windowMs || 15 * 60 * 1000; // 15 minutes default
+  const maxRequests = options.max || 120; // 120 requests default
+
+  return (req, res, next) => {
+    // Client IP detection (supporting proxy headers like Vercel / Cloudflare)
+    const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1').split(',')[0].trim();
+    const userIdentifier = req.body?.username ? `${clientIp}_${String(req.body.username).toLowerCase()}` : clientIp;
+    const key = `${req.path}:${userIdentifier}`;
+
+    const now = Date.now();
+    let record = rateLimitStore.get(key);
+
+    if (!record || now > record.resetTime) {
+      record = { count: 1, resetTime: now + windowMs };
+    } else {
+      record.count += 1;
+    }
+
+    rateLimitStore.set(key, record);
+
+    const remaining = Math.max(0, maxRequests - record.count);
+    res.setHeader('X-RateLimit-Limit', maxRequests);
+    res.setHeader('X-RateLimit-Remaining', remaining);
+    res.setHeader('X-RateLimit-Reset', Math.ceil(record.resetTime / 1000));
+
+    if (record.count > maxRequests) {
+      const retryAfterSec = Math.ceil((record.resetTime - now) / 1000);
+      res.setHeader('Retry-After', retryAfterSec);
+      return res.status(429).json({
+        error: 'Too Many Requests',
+        message: options.message || 'Rate limit exceeded. Please wait a few minutes before trying again.',
+        status: 429,
+        retryAfterSeconds: retryAfterSec
+      });
+    }
+
+    next();
+  };
+};
+
+// Global rate limiter for all public endpoints: 150 requests / 15 mins
+app.use(createRateLimiter({ windowMs: 15 * 60 * 1000, max: 150 }));
+
+// Dedicated strict login rate limiter: 10 attempts / 15 mins
+const loginRateLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: 'Too many login attempts. Account temporarily locked for 15 minutes.'
+});
+
+// 2. Input Sanitization & Safety Middleware (NoSQL & XSS prevention)
+const sanitizeInput = (req, res, next) => {
+  if (req.body && typeof req.body === 'object') {
+    const sanitizeValue = (val, key = '') => {
+      // Reject NoSQL injection operators starting with $ or containing .
+      if (key.startsWith('$') || key.includes('.')) {
+        return undefined;
+      }
+      if (typeof val === 'string') {
+        // Strip script tags and HTML dangerous constructs
+        let sanitized = val.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+                           .replace(/javascript:/gi, '');
+        // Length sanity check (max 2000 chars per text field)
+        if (sanitized.length > 2000) {
+          sanitized = sanitized.substring(0, 2000);
+        }
+        return sanitized.trim();
+      }
+      if (Array.isArray(val)) {
+        return val.map(item => sanitizeValue(item));
+      }
+      if (val !== null && typeof val === 'object') {
+        const cleanObj = {};
+        for (const [k, v] of Object.entries(val)) {
+          if (!k.startsWith('$') && !k.includes('.')) {
+            cleanObj[k] = sanitizeValue(v, k);
+          }
+        }
+        return cleanObj;
+      }
+      return val;
+    };
+
+    req.body = sanitizeValue(req.body);
+  }
+  next();
+};
+
+app.use(sanitizeInput);
 
 // Cached Mongoose connection helper for Vercel Serverless Functions
 let cached = global.mongoose;
@@ -410,8 +516,8 @@ app.delete('/api/users/:id', async (req, res) => {
   }
 });
 
-// Dedicated login validation route supporting Bcrypt, SHA-256, and Plaintext
-app.post('/api/users/login', async (req, res) => {
+// Dedicated login validation route supporting Bcrypt, SHA-256, and Plaintext (Strict 10 attempts / 15 min limit)
+app.post('/api/users/login', loginRateLimiter, async (req, res) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) {
