@@ -410,18 +410,18 @@ app.delete('/api/users/:id', async (req, res) => {
   }
 });
 
-// Dedicated login validation route using Bcrypt Hash comparison
+// Dedicated login validation route supporting Bcrypt, SHA-256, and Plaintext
 app.post('/api/users/login', async (req, res) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) {
-      return res.status(400).json({ error: 'Username and password required' });
+      return res.status(400).json({ success: false, message: 'Username and password required' });
     }
 
     const cleanUsername = String(username).trim().toLowerCase();
     const cleanPassword = String(password).trim();
 
-    // Auto-seed default admin user if users collection in MongoDB is completely empty
+    // Auto-seed admin user if users collection in MongoDB is empty
     const userCount = await User.countDocuments();
     if (userCount === 0 && cleanUsername === 'admin') {
       const defaultAdminPass = bcrypt.hashSync('admin123', 10);
@@ -434,28 +434,47 @@ app.post('/api/users/login', async (req, res) => {
     }
 
     if (!user) {
-      return res.json({ success: false, message: 'User account does not exist in MongoDB' });
+      return res.json({ success: false, message: 'Invalid credentials' });
     }
 
     let isValid = false;
-    if (user.password.startsWith('$2a$') || user.password.startsWith('$2b$')) {
-      isValid = bcrypt.compareSync(cleanPassword, user.password);
-    } else {
-      // Automatic upgrade from legacy SHA-256 / plaintext to Bcrypt Hash
-      const inputHash = crypto.createHash('sha256').update(cleanPassword).digest('hex');
-      if (user.password === cleanPassword || user.password === inputHash) {
+
+    // 1. Check Bcrypt ($2a$, $2b$, $2y$)
+    if (user.password && user.password.startsWith('$2')) {
+      try {
+        isValid = bcrypt.compareSync(cleanPassword, user.password);
+      } catch (e) {
+        isValid = false;
+      }
+    }
+
+    // 2. Check SHA-256
+    if (!isValid) {
+      const sha256Hash = crypto.createHash('sha256').update(cleanPassword).digest('hex');
+      if (user.password === sha256Hash) {
         isValid = true;
-        user.password = bcrypt.hashSync(cleanPassword, 10);
-        await user.save().catch(() => null);
+      }
+    }
+
+    // 3. Check Plain Text
+    if (!isValid) {
+      if (user.password === cleanPassword) {
+        isValid = true;
       }
     }
 
     if (isValid) {
+      // Auto-upgrade unhashed passwords to Bcrypt for maximum security
+      if (!user.password.startsWith('$2')) {
+        user.password = bcrypt.hashSync(cleanPassword, 10);
+        await user.save().catch(() => null);
+      }
       return res.json({ success: true, role: user.role, username: user._id });
     }
-    res.json({ success: false, message: 'Invalid password provided' });
+
+    res.json({ success: false, message: 'Invalid credentials' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
