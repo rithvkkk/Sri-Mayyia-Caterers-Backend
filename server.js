@@ -138,12 +138,12 @@ async function connectDB() {
     if (!uri) {
       throw new Error('MONGODB_URI environment variable is missing in Vercel settings');
     }
-    console.log('🔄 Connecting to MongoDB Atlas...');
+    console.log('Connecting to MongoDB Atlas...');
     cached.promise = mongoose.connect(uri, {
       serverSelectionTimeoutMS: 3000,
       connectTimeoutMS: 3000
     }).then((m) => {
-      console.log('✅ Connected to MongoDB online');
+      console.log('Connected to MongoDB online');
       return m;
     });
   }
@@ -163,13 +163,13 @@ app.use(async (req, res, next) => {
     await connectDB();
     next();
   } catch (err) {
-    console.error('❌ DB connection failed:', err);
+    console.error('DB connection failed:', err);
     res.status(500).json({ error: `Database Connection Failed: ${err.message || String(err)}` });
   }
 });
 
 app.get('/', (req, res) => {
-  res.send('<h2>👑 CaterFlow Enterprise Catering API is Online!</h2><p>Connect your frontend React client to this URL.</p>');
+  res.send('<h2>CaterFlow Enterprise Catering API is Online!</h2><p>Connect your frontend React client to this URL.</p>');
 });
 
 app.get('/status', (req, res) => {
@@ -217,10 +217,12 @@ const recipeItemSchema = new mongoose.Schema({
 const dishSchema = new mongoose.Schema({
   _id: { type: String, required: true },
   name: { type: String, required: true },
-  category: { type: String, required: true }, // Starters, Mains, Desserts, Beverages
+  category: { type: String, required: true },
+  subCategory: { type: String },
+  dietary: [{ type: String }],
   price: { type: Number, required: true },
   recipe: [recipeItemSchema]
-});
+}, { timestamps: true });
 const Dish = mongoose.model('Dish', dishSchema);
 
 // 4. Supplier
@@ -527,6 +529,94 @@ createCRUDRoutes(app, '/api/vegetables', Vegetable);
 createCRUDRoutes(app, '/api/labour-workers', LabourWorker);
 createCRUDRoutes(app, '/api/labour-attendance', LabourAttendance);
 
+// ─────────────────── MASTER MENU JSON DIRECT MONGO UPLOAD ───────────────────
+app.post('/api/menu/upload-json', async (req, res) => {
+  try {
+    let masterMenu = req.body;
+    if (!masterMenu || (Array.isArray(masterMenu) && masterMenu.length === 0) || (!Array.isArray(masterMenu) && (!masterMenu.categories || !Array.isArray(masterMenu.categories)))) {
+      // Load from local catering_master_menu.json
+      const fs = require('fs');
+      const path = require('path');
+      const jsonPath = path.join(__dirname, 'catering_master_menu.json');
+      if (fs.existsSync(jsonPath)) {
+        masterMenu = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+      } else {
+        return res.status(400).json({ error: 'No menu JSON provided and catering_master_menu.json file not found on server.' });
+      }
+    }
+
+    const allDishes = [];
+    if (Array.isArray(masterMenu)) {
+      masterMenu.forEach(item => {
+        allDishes.push({
+          _id: item._id || item.id,
+          name: item.name,
+          category: item.category,
+          subCategory: item.subCategory,
+          dietary: item.dietary || ['Vegetarian'],
+          price: item.price || 100,
+          recipe: item.recipe || []
+        });
+      });
+    } else {
+      (masterMenu.categories || []).forEach(cat => {
+        const catName = cat.name;
+        (cat.subCategories || []).forEach(sub => {
+          const subName = sub.name;
+          (sub.items || []).forEach(item => {
+            allDishes.push({
+              _id: item._id || item.id,
+              name: item.name,
+              category: item.category || catName,
+              subCategory: item.subCategory || subName,
+              dietary: item.dietary || ['Vegetarian'],
+              price: item.price || 100,
+              recipe: item.recipe || []
+            });
+          });
+        });
+      });
+    }
+
+    const bulkOps = allDishes.map(dish => ({
+      updateOne: {
+        filter: { _id: dish._id },
+        update: { $set: dish },
+        upsert: true
+      }
+    }));
+
+    const result = await Dish.bulkWrite(bulkOps);
+
+    res.json({
+      success: true,
+      message: 'Master Menu JSON successfully uploaded to MongoDB!',
+      totalDishes: allDishes.length,
+      matchedCount: result.matchedCount || 0,
+      upsertedCount: result.upsertedCount || 0,
+      modifiedCount: result.modifiedCount || 0
+    });
+  } catch (err) {
+    console.error('Error uploading menu to MongoDB:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/menu/master-json', async (req, res) => {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const jsonPath = path.join(__dirname, 'catering_master_menu.json');
+    if (fs.existsSync(jsonPath)) {
+      const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+      return res.json(data);
+    }
+    const dishes = await Dish.find();
+    res.json({ categories: [], dishes });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Secure /api/users endpoints with hashing
 app.get('/api/users', async (req, res) => {
@@ -727,20 +817,29 @@ app.post('/api/seed', async (req, res) => {
       console.warn('Could not load ./catering_master_menu.json, using fallback');
     }
 
-    const initialDishes = masterMenuData.categories && masterMenuData.categories.length > 0
-      ? masterMenuData.categories.flatMap(cat =>
-          cat.subCategories.flatMap(sub =>
-            sub.items.map(item => ({
-              _id: item.id,
+    const initialDishes = Array.isArray(masterMenuData)
+      ? masterMenuData.map(item => ({
+          _id: item._id || item.id,
+          name: item.name,
+          category: item.category,
+          subCategory: item.subCategory,
+          dietary: item.dietary || ['Vegetarian'],
+          price: item.price || 100,
+          recipe: item.recipe || []
+        }))
+      : (masterMenuData.categories || []).flatMap(cat =>
+          (cat.subCategories || []).flatMap(sub =>
+            (sub.items || []).map(item => ({
+              _id: item._id || item.id,
               name: item.name,
-              category: item.category,
-              subCategory: item.subCategory,
-              price: item.price,
-              recipe: []
+              category: item.category || cat.name,
+              subCategory: item.subCategory || sub.name,
+              dietary: item.dietary || ['Vegetarian'],
+              price: item.price || 100,
+              recipe: item.recipe || []
             }))
           )
-        )
-      : [];
+        );
 
     const initialSuppliers = [
       { _id: 's1', name: 'Krishna Grocery Wholesalers', category: 'Grocery', contact: 'Ramesh Patel', phone: '+91 98765 43210' },
@@ -936,7 +1035,7 @@ app.post('/api/seed', async (req, res) => {
 
     res.json({ success: true, message: 'Seeded Cloud Database successfully for Sri Mayyia Caterers' });
   } catch (err) {
-    console.error('❌ Seeding error:', err);
+    console.error('Seeding error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -944,11 +1043,11 @@ app.post('/api/seed', async (req, res) => {
 // Export Express app for Vercel Serverless Function execution
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
   app.listen(PORT, () => {
-    console.log(`👑 CaterFlow Enterprise API running on http://localhost:${PORT}`);
+    console.log(`CaterFlow Enterprise API running on http://localhost:${PORT}`);
     
     if (MONGODB_URI) {
       connectDB().catch(err => {
-        console.warn('⚠️ MongoDB Atlas connection warning:', err.message);
+        console.warn('MongoDB Atlas connection warning:', err.message);
       });
     }
   });
