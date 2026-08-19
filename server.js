@@ -304,6 +304,23 @@ const labourWorkerSchema = new mongoose.Schema({
 });
 const LabourWorker = mongoose.model('LabourWorker', labourWorkerSchema);
 
+// 6f. Labour Attendance Log
+const labourAttendanceSchema = new mongoose.Schema({
+  _id: { type: String, required: true },
+  workerId: { type: String, required: true },
+  workerName: { type: String, required: true },
+  date: { type: String, required: true },
+  eventId: { type: String, default: '' },
+  eventName: { type: String, default: '' },
+  shiftType: { type: String, default: 'Full Day' }, // Full Day, Morning, Evening, Double Shift
+  shifts: { type: Number, default: 1 },
+  dailyRate: { type: Number, required: true },
+  totalWage: { type: Number, required: true },
+  status: { type: String, default: 'Present' }, // Present, Half-Day, Overtime, Absent, On Leave
+  notes: { type: String, default: '' }
+}, { timestamps: true });
+const LabourAttendance = mongoose.model('LabourAttendance', labourAttendanceSchema);
+
 // 7. Company Profile
 const companyProfileSchema = new mongoose.Schema({
   _id: { type: String, default: 'current_profile' },
@@ -322,7 +339,7 @@ const CompanyProfile = mongoose.model('CompanyProfile', companyProfileSchema);
 const userSchema = new mongoose.Schema({
   _id: { type: String, required: true }, // Username
   password: { type: String, required: true },
-  role: { type: String, required: true } // Admin, Manager, Chef, Accountant, Agency
+  role: { type: String, required: true } // Admin, HR, Inhouse Inventory Manager, Accountant, Sales Executive, Agency, Chef
 });
 const User = mongoose.model('User', userSchema);
 
@@ -331,8 +348,10 @@ const User = mongoose.model('User', userSchema);
 const subFunctionSchema = new mongoose.Schema({
   id: { type: String, required: true },
   name: { type: String, required: true },
+  date: { type: String, default: '' },
   guestCount: { type: Number, required: true },
-  menuItems: [{ type: String }] // Array of dish IDs
+  menuItems: [{ type: String }], // Array of dish IDs
+  clientNotes: { type: String, default: '' }
 }, { _id: false });
 
 const laborAllocationSchema = new mongoose.Schema({
@@ -359,6 +378,35 @@ const manualMaterialSchema = new mongoose.Schema({
   }
 }, { _id: false });
 
+const vehicleExpenseSchema = new mongoose.Schema({
+  id: { type: String, required: true },
+  vehicleType: { type: String, required: true }, // Tempo, Mini-Truck (14ft), Auto, Refrigerated Van, Eeco
+  vehicleNumber: { type: String, default: '' },
+  trips: { type: Number, default: 1 },
+  ratePerTrip: { type: Number, default: 0 },
+  totalCost: { type: Number, default: 0 },
+  driverName: { type: String, default: '' },
+  driverPhone: { type: String, default: '' }
+}, { _id: false });
+
+const porterExpenseSchema = new mongoose.Schema({
+  id: { type: String, required: true },
+  description: { type: String, default: 'Loading & Unloading Porter' },
+  count: { type: Number, default: 1 },
+  ratePerPorter: { type: Number, default: 0 },
+  totalCost: { type: Number, default: 0 }
+}, { _id: false });
+
+const reminderSchema = new mongoose.Schema({
+  id: { type: String, required: true },
+  date: { type: String, required: true },
+  time: { type: String, default: '10:00' },
+  note: { type: String, required: true },
+  priority: { type: String, default: 'Medium' }, // High, Medium, Low
+  completed: { type: Boolean, default: false },
+  createdAt: { type: String, default: () => new Date().toISOString() }
+}, { _id: false });
+
 const eventSchema = new mongoose.Schema({
   _id: { type: String, required: true }, // EV-YYYY-XXX
   customer: {
@@ -368,16 +416,25 @@ const eventSchema = new mongoose.Schema({
   },
   eventType: { type: String, required: true },
   venueId: { type: String, required: true },
-  date: { type: String, required: true },
+  date: { type: String, required: true }, // Primary / Commencement Date
+  dates: [{ type: String }], // Array of multiple event dates
+  menuNotes: { type: String, default: '' },
   status: { type: String, default: 'Inquiry' }, // Inquiry, Confirmed, Completed, Cancelled
+  reminders: [reminderSchema],
   subFunctions: [subFunctionSchema],
   manualMaterials: [manualMaterialSchema],
+  transport: {
+    vehicles: [vehicleExpenseSchema],
+    porters: [porterExpenseSchema],
+    totalTransportCost: { type: Number, default: 0 }
+  },
   execution: {
     teamRoutes: { type: Map, of: String }, // dishId -> 'internal' | 'outsourced' | 'agency'
     dishStatuses: { type: Map, of: String }, // dishId -> preparation status
     costs: {
       rawMaterialsCost: { type: Number, default: 0 },
       laborCost: { type: Number, default: 0 },
+      transportCost: { type: Number, default: 0 },
       venueRent: { type: Number, default: 0 },
       otherExpenses: { type: Number, default: 0 }
     }
@@ -468,6 +525,7 @@ createCRUDRoutes(app, '/api/vessels', Vessel);
 createCRUDRoutes(app, '/api/provisions', Provision);
 createCRUDRoutes(app, '/api/vegetables', Vegetable);
 createCRUDRoutes(app, '/api/labour-workers', LabourWorker);
+createCRUDRoutes(app, '/api/labour-attendance', LabourAttendance);
 
 
 // Secure /api/users endpoints with hashing
@@ -662,86 +720,27 @@ app.post('/api/seed', async (req, res) => {
       { _id: 'rm21', name: 'Charcoal / Wood', category: 'Fuel', unit: 'bag', costPerUnit: 450 }
     ];
 
-    const initialDishes = [
-      // 1. Authentic Andhra Lunch
-      { _id: 'd_a1', name: 'Poornam Borellu', category: 'Sweets & Desserts', price: 60, recipe: [{ materialId: 'rm3', quantity: 0.05 }, { materialId: 'rm14', quantity: 0.01 }] },
-      { _id: 'd_a2', name: 'Dry Fruit Jaggery Puthurekulu', category: 'Sweets & Desserts', price: 90, recipe: [{ materialId: 'rm3', quantity: 0.04 }, { materialId: 'rm14', quantity: 0.02 }] },
-      { _id: 'd_a3', name: 'Madtha Kaja', category: 'Sweets & Desserts', price: 50, recipe: [{ materialId: 'rm2', quantity: 0.06 }, { materialId: 'rm3', quantity: 0.05 }] },
-      { _id: 'd_a4', name: 'Kurban Ka Meeta', category: 'Sweets & Desserts', price: 70, recipe: [{ materialId: 'rm12', quantity: 0.1 }, { materialId: 'rm3', quantity: 0.04 }] },
-      { _id: 'd_a5', name: 'Sabsige Beeyam Parvanam', category: 'Sweets & Desserts', price: 60, recipe: [{ materialId: 'rm1', quantity: 0.05 }, { materialId: 'rm12', quantity: 0.1 }] },
-      { _id: 'd_a6', name: 'Sabsige Masala Roti with Chutney', category: 'Breads & Live Stalls', price: 55, recipe: [{ materialId: 'rm2', quantity: 0.08 }, { materialId: 'rm5', quantity: 0.01 }] },
-      { _id: 'd_a7', name: 'Rumali Roti', category: 'Breads & Live Stalls', price: 35, recipe: [{ materialId: 'rm2', quantity: 0.07 }] },
-      { _id: 'd_a8', name: 'MLA Pesarattu', category: 'Breads & Live Stalls', price: 75, recipe: [{ materialId: 'rm6', quantity: 0.08 }, { materialId: 'rm5', quantity: 0.015 }] },
-      { _id: 'd_a9', name: 'Channa Paneer Masala', category: 'Curries, Rice & Sides', price: 140, recipe: [{ materialId: 'rm9', quantity: 0.08 }, { materialId: 'rm6', quantity: 0.05 }] },
-      { _id: 'd_a10', name: 'Raw Jackfruit Biriyani', category: 'Curries, Rice & Sides', price: 180, recipe: [{ materialId: 'rm1', quantity: 0.12 }, { materialId: 'rm15', quantity: 0.08 }] },
-      { _id: 'd_a11', name: 'Raitha', category: 'Curries, Rice & Sides', price: 30, recipe: [{ materialId: 'rm12', quantity: 0.05 }] },
-      { _id: 'd_a12', name: 'Coconut Milk Rice', category: 'Curries, Rice & Sides', price: 120, recipe: [{ materialId: 'rm1', quantity: 0.1 }, { materialId: 'rm14', quantity: 0.01 }] },
-      { _id: 'd_a13', name: 'Puliyora - Side', category: 'Curries, Rice & Sides', price: 70, recipe: [{ materialId: 'rm1', quantity: 0.08 }, { materialId: 'rm4', quantity: 0.01 }] },
-      { _id: 'd_a14', name: 'Kanda Bacchali', category: 'Curries, Rice & Sides', price: 95, recipe: [{ materialId: 'rm15', quantity: 0.1 }] },
-      { _id: 'd_a15', name: 'Guttuvankai Fry', category: 'Curries, Rice & Sides', price: 110, recipe: [{ materialId: 'rm15', quantity: 0.12 }, { materialId: 'rm5', quantity: 0.02 }] },
-      { _id: 'd_a16', name: 'Bendikai Fry', category: 'Curries, Rice & Sides', price: 85, recipe: [{ materialId: 'rm15', quantity: 0.1 }] },
-      { _id: 'd_a17', name: 'Veg Kosambari', category: 'Curries, Rice & Sides', price: 40, recipe: [{ materialId: 'rm6', quantity: 0.03 }] },
-      { _id: 'd_a18', name: 'White Rice', category: 'Curries, Rice & Sides', price: 40, recipe: [{ materialId: 'rm1', quantity: 0.12 }] },
-      { _id: 'd_a19', name: 'Mukkulu Pulusu', category: 'Curries, Rice & Sides', price: 80, recipe: [{ materialId: 'rm15', quantity: 0.08 }] },
-      { _id: 'd_a20', name: 'Mammidikaya Pappu + Ghee', category: 'Curries, Rice & Sides', price: 90, recipe: [{ materialId: 'rm6', quantity: 0.06 }, { materialId: 'rm14', quantity: 0.01 }] },
-      { _id: 'd_a21', name: 'Vuluvulu Charu + Cream', category: 'Curries, Rice & Sides', price: 75, recipe: [{ materialId: 'rm6', quantity: 0.05 }, { materialId: 'rm11', quantity: 0.01 }] },
-      { _id: 'd_a22', name: 'Tomato Miriyala Rasam', category: 'Curries, Rice & Sides', price: 45, recipe: [{ materialId: 'rm17', quantity: 0.05 }] },
+    let masterMenuData = { categories: [] };
+    try {
+      masterMenuData = require('./catering_master_menu.json');
+    } catch (e) {
+      console.warn('Could not load ./catering_master_menu.json, using fallback');
+    }
 
-      // 2. Evening Snacks
-      { _id: 'd_s1', name: 'Mohabath Ka Sharabeth', category: 'Welcome Drinks & Refreshments', price: 60, recipe: [{ materialId: 'rm12', quantity: 0.15 }, { materialId: 'rm3', quantity: 0.02 }] },
-      { _id: 'd_s2', name: 'Filter Coffee', category: 'Welcome Drinks & Refreshments', price: 30, recipe: [{ materialId: 'rm7', quantity: 0.01 }, { materialId: 'rm12', quantity: 0.1 }] },
-      { _id: 'd_s3', name: 'Masala Tea', category: 'Welcome Drinks & Refreshments', price: 25, recipe: [{ materialId: 'rm7', quantity: 0.008 }, { materialId: 'rm12', quantity: 0.08 }] },
-      { _id: 'd_s4', name: 'Shavige Rawa Bath', category: 'Snacks & Starters', price: 50, recipe: [{ materialId: 'rm2', quantity: 0.06 }, { materialId: 'rm15', quantity: 0.03 }] },
-      { _id: 'd_s5', name: 'Dragon Roll', category: 'Snacks & Starters', price: 90, recipe: [{ materialId: 'rm15', quantity: 0.06 }, { materialId: 'rm8', quantity: 0.01 }] },
-      { _id: 'd_s6', name: 'Sante Bonda', category: 'Snacks & Starters', price: 45, recipe: [{ materialId: 'rm16', quantity: 0.05 }] },
-      { _id: 'd_s7', name: 'Beetroot Alu Cutlet', category: 'Snacks & Starters', price: 55, recipe: [{ materialId: 'rm16', quantity: 0.06 }] },
-      { _id: 'd_s8', name: 'Paneer Grill', category: 'Snacks & Starters', price: 110, recipe: [{ materialId: 'rm9', quantity: 0.1 }] },
-      { _id: 'd_s9', name: 'Bread Samosa', category: 'Snacks & Starters', price: 40, recipe: [{ materialId: 'rm16', quantity: 0.05 }, { materialId: 'rm2', quantity: 0.03 }] },
-
-      // 3. Rajasthani Dinner
-      { _id: 'd_r1', name: 'Tomato Coriander Seeds Shorba', category: 'Soups & Starters', price: 65, recipe: [{ materialId: 'rm17', quantity: 0.08 }] },
-      { _id: 'd_r2', name: 'Mughlai Zaffrani Soup', category: 'Soups & Starters', price: 85, recipe: [{ materialId: 'rm11', quantity: 0.02 }, { materialId: 'rm12', quantity: 0.1 }] },
-      { _id: 'd_r3', name: 'Khakhra Sandwich', category: 'Soups & Starters', price: 55, recipe: [{ materialId: 'rm2', quantity: 0.04 }, { materialId: 'rm15', quantity: 0.03 }] },
-      { _id: 'd_r9', name: 'Dal Baati Churma', category: 'Breads & Main Course', price: 160, recipe: [{ materialId: 'rm2', quantity: 0.1 }, { materialId: 'rm6', quantity: 0.06 }, { materialId: 'rm14', quantity: 0.03 }] },
-      { _id: 'd_r10', name: 'Alu Capsicum Sabji', category: 'Breads & Main Course', price: 110, recipe: [{ materialId: 'rm16', quantity: 0.06 }, { materialId: 'rm17', quantity: 0.04 }] },
-      { _id: 'd_r13', name: 'Rajasthani Kadhi', category: 'Breads & Main Course', price: 90, recipe: [{ materialId: 'rm12', quantity: 0.1 }, { materialId: 'rm6', quantity: 0.03 }] },
-      { _id: 'd_r16', name: 'Laccha Paratha', category: 'Breads & Main Course', price: 45, recipe: [{ materialId: 'rm2', quantity: 0.08 }, { materialId: 'rm14', quantity: 0.01 }] },
-      { _id: 'd_r19', name: 'Kacchi Haldi Ka Sabji', category: 'Breads & Main Course', price: 150, recipe: [{ materialId: 'rm15', quantity: 0.08 }, { materialId: 'rm14', quantity: 0.02 }] },
-      { _id: 'd_r26', name: 'Moong Dal Halwa', category: 'Sweets & Desserts', price: 90, recipe: [{ materialId: 'rm6', quantity: 0.05 }, { materialId: 'rm14', quantity: 0.02 }, { materialId: 'rm3', quantity: 0.04 }] },
-      { _id: 'd_r28', name: 'Malai Ghevar', category: 'Sweets & Desserts', price: 110, recipe: [{ materialId: 'rm2', quantity: 0.05 }, { materialId: 'rm11', quantity: 0.02 }] },
-
-      // 4. Tamil Nadu Style Breakfast
-      { _id: 'd_tn1', name: 'Kushboo Idly', category: 'Main Items', price: 40, recipe: [{ materialId: 'rm1', quantity: 0.05 }, { materialId: 'rm6', quantity: 0.02 }] },
-      { _id: 'd_tn2', name: 'Medhu Vadai', category: 'Main Items', price: 45, recipe: [{ materialId: 'rm6', quantity: 0.05 }, { materialId: 'rm5', quantity: 0.015 }] },
-      { _id: 'd_tn3', name: 'Onion Uttappam', category: 'Main Items', price: 60, recipe: [{ materialId: 'rm1', quantity: 0.06 }, { materialId: 'rm16', quantity: 0.03 }] },
-      { _id: 'd_tn7', name: 'Madras Ghee Ven Pongal', category: 'Main Items', price: 65, recipe: [{ materialId: 'rm1', quantity: 0.06 }, { materialId: 'rm6', quantity: 0.02 }, { materialId: 'rm14', quantity: 0.01 }] },
-      { _id: 'd_tn8', name: 'Tiffin Sambar', category: 'Sides & Gravies', price: 30, recipe: [{ materialId: 'rm6', quantity: 0.03 }, { materialId: 'rm15', quantity: 0.03 }] },
-
-      // 5. Lunch (Grand Royal Feast)
-      { _id: 'd_l1', name: 'Kesar Peni + Badam Milk', category: 'Sweets & Desserts', price: 90, recipe: [{ materialId: 'rm12', quantity: 0.15 }, { materialId: 'rm3', quantity: 0.03 }] },
-      { _id: 'd_l2', name: 'Matka Rajbhog', category: 'Sweets & Desserts', price: 80, recipe: [{ materialId: 'rm13', quantity: 0.05 }, { materialId: 'rm3', quantity: 0.03 }] },
-      { _id: 'd_l14', name: 'Amritsari Channa Masala', category: 'Breads & Main Course', price: 110, recipe: [{ materialId: 'rm6', quantity: 0.08 }] },
-      { _id: 'd_l17', name: 'Paneer Thalassery Biriyani in Clay Pot', category: 'Breads & Main Course', price: 190, recipe: [{ materialId: 'rm1', quantity: 0.12 }, { materialId: 'rm9', quantity: 0.08 }] },
-
-      // 6. Dinner (Multi-Cuisine Extravaganza)
-      { _id: 'd_d1', name: 'Ferrero Rocher Milkshake', category: 'Milkshakes & Mocktails', price: 140, recipe: [{ materialId: 'rm12', quantity: 0.15 }] },
-      { _id: 'd_d4', name: 'Sangria Fruit Mocktail', category: 'Milkshakes & Mocktails', price: 120, recipe: [{ materialId: 'rm19', quantity: 0.05 }] },
-      { _id: 'd_d12', name: 'Treat Paneer Coins', category: 'Finger Foods & Street Food', price: 120, recipe: [{ materialId: 'rm9', quantity: 0.08 }] },
-      { _id: 'd_d15', name: 'Pancharatna Pani Puri (5 Flavored Panis)', category: 'Finger Foods & Street Food', price: 85, recipe: [{ materialId: 'rm16', quantity: 0.05 }] },
-      { _id: 'd_d23', name: 'Cream of Badam Broccoli Soup', category: 'Savoury Spoon (Soups)', price: 95, recipe: [{ materialId: 'rm11', quantity: 0.02 }, { materialId: 'rm15', quantity: 0.06 }] },
-      { _id: 'd_d26', name: 'Turkish Kunafa', category: 'Fruit Mittai (Sweets)', price: 140, recipe: [{ materialId: 'rm2', quantity: 0.04 }, { materialId: 'rm3', quantity: 0.04 }, { materialId: 'rm14', quantity: 0.015 }] },
-      { _id: 'd_d45', name: 'Artisan Pasta (Red / White / Pink)', category: 'Global Cuisines (Roman)', price: 160, recipe: [{ materialId: 'rm2', quantity: 0.08 }, { materialId: 'rm11', quantity: 0.02 }] },
-      { _id: 'd_d47', name: 'Baked Veg Lasagna', category: 'Global Cuisines (Roman)', price: 190, recipe: [{ materialId: 'rm2', quantity: 0.08 }, { materialId: 'rm15', quantity: 0.06 }] },
-      { _id: 'd_d56', name: 'Burnt Garlic Veg Noodles', category: 'Global Cuisines (Chinese)', price: 140, recipe: [{ materialId: 'rm2', quantity: 0.08 }, { materialId: 'rm8', quantity: 0.01 }] },
-      { _id: 'd_d64', name: 'Nargisi Kofta Curry', category: 'Mughals & Nawabs', price: 170, recipe: [{ materialId: 'rm9', quantity: 0.06 }, { materialId: 'rm15', quantity: 0.05 }] },
-      { _id: 'd_d65', name: 'Mughlai Paneer Shahi', category: 'Mughals & Nawabs', price: 180, recipe: [{ materialId: 'rm9', quantity: 0.1 }, { materialId: 'rm11', quantity: 0.02 }] },
-      { _id: 'd_d81', name: 'Hyderabadi Cashew Biriyani', category: 'South Indian Specials', price: 210, recipe: [{ materialId: 'rm1', quantity: 0.12 }, { materialId: 'rm9', quantity: 0.05 }, { materialId: 'rm14', quantity: 0.015 }] },
-      { _id: 'd_d86', name: 'Live Podi Rice & Tokku Counter', category: 'South Indian Specials', price: 90, recipe: [{ materialId: 'rm1', quantity: 0.1 }, { materialId: 'rm4', quantity: 0.02 }] },
-      { _id: 'd_d102', name: 'Red Velvet Cake Pastry', category: 'Desserts & Fruits', price: 85, recipe: [{ materialId: 'rm2', quantity: 0.04 }, { materialId: 'rm3', quantity: 0.03 }] },
-      { _id: 'd_d105', name: 'Imported Fruits Garden (Dragon, Kiwi, Plum)', category: 'Desserts & Fruits', price: 140, recipe: [{ materialId: 'rm19', quantity: 0.15 }] },
-      { _id: 'd_d110', name: 'Mango Paan', category: 'Desserts & Fruits', price: 30, recipe: [] },
-      { _id: 'd_d113', name: 'Fire Paan', category: 'Desserts & Fruits', price: 40, recipe: [] }
-    ];
+    const initialDishes = masterMenuData.categories && masterMenuData.categories.length > 0
+      ? masterMenuData.categories.flatMap(cat =>
+          cat.subCategories.flatMap(sub =>
+            sub.items.map(item => ({
+              _id: item.id,
+              name: item.name,
+              category: item.category,
+              subCategory: item.subCategory,
+              price: item.price,
+              recipe: []
+            }))
+          )
+        )
+      : [];
 
     const initialSuppliers = [
       { _id: 's1', name: 'Krishna Grocery Wholesalers', category: 'Grocery', contact: 'Ramesh Patel', phone: '+91 98765 43210' },
