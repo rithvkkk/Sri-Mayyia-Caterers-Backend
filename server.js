@@ -345,6 +345,36 @@ const userSchema = new mongoose.Schema({
 });
 const User = mongoose.model('User', userSchema);
 
+// 7c. Role-Based Access Control (RBAC) Matrix Schema
+const rbacMatrixSchema = new mongoose.Schema({
+  _id: { type: String, default: 'current_matrix' },
+  matrix: { type: mongoose.Schema.Types.Mixed, default: {} }
+}, { timestamps: true });
+const RbacMatrix = mongoose.model('RbacMatrix', rbacMatrixSchema);
+
+// 7d. Historical Legacy Events Ingestion & Machine Learning Schema
+const historicalEventSchema = new mongoose.Schema({
+  _id: { type: String, required: true },
+  eventType: { type: String, required: true },
+  guestCount: { type: Number, required: true },
+  actualPax: { type: Number },
+  serviceStyle: { type: String, default: 'Traditional Banana Leaf' },
+  season: { type: String, default: 'Regular' },
+  foodCostPerPax: { type: Number, default: 320 },
+  wastePercent: { type: Number, default: 4.5 },
+  netMarginPercent: { type: Number, default: 45.0 },
+  menuSummary: [{ type: String }],
+  rawMaterialActuals: [{
+    materialId: String,
+    materialName: String,
+    consumedQty: Number,
+    unit: String
+  }],
+  postEventNotes: { type: String, default: '' },
+  ingestedAt: { type: Date, default: Date.now }
+}, { timestamps: true });
+const HistoricalEvent = mongoose.model('HistoricalEvent', historicalEventSchema);
+
 
 // 8. Event
 const subFunctionSchema = new mongoose.Schema({
@@ -614,6 +644,82 @@ app.get('/api/menu/master-json', async (req, res) => {
     const dishes = await Dish.find();
     res.json({ categories: [], dishes });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────── RBAC MATRIX ENDPOINTS ───────────────────
+app.get('/api/rbac-matrix', async (req, res) => {
+  try {
+    const doc = await RbacMatrix.findById('current_matrix');
+    res.json(doc ? doc.matrix : {});
+  } catch (err) {
+    res.json({});
+  }
+});
+
+app.post('/api/rbac-matrix', async (req, res) => {
+  try {
+    const matrix = req.body;
+    await RbacMatrix.findByIdAndUpdate(
+      'current_matrix',
+      { matrix },
+      { upsert: true, new: true }
+    );
+    res.json({ success: true, message: 'RBAC matrix updated successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────── HISTORICAL DATA SEEDING & INGESTION ───────────────────
+app.get('/api/historical-events', async (req, res) => {
+  try {
+    const events = await HistoricalEvent.find().sort({ createdAt: -1 }).limit(200);
+    res.json(events.map(e => ({ ...e.toObject(), id: e._id })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/historical-events/ingest-batch', async (req, res) => {
+  try {
+    const records = req.body;
+    if (!Array.isArray(records) || records.length === 0) {
+      return res.status(400).json({ error: 'Expected an array of legacy event records.' });
+    }
+
+    const bulkOps = records.map(rec => ({
+      updateOne: {
+        filter: { _id: String(rec.id || rec._id || `hist_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`) },
+        update: {
+          $set: {
+            eventType: rec.eventType || 'Wedding Catering',
+            guestCount: Number(rec.guestCount || rec.actualPax || 100),
+            actualPax: Number(rec.actualPax || rec.guestCount || 100),
+            serviceStyle: rec.serviceStyle || 'Traditional Banana Leaf',
+            season: rec.season || 'Regular',
+            foodCostPerPax: Number(rec.foodCostPerPax || 320),
+            wastePercent: Number(rec.wastePercent || 4.5),
+            netMarginPercent: Number(rec.netMarginPercent || 45.0),
+            menuSummary: Array.isArray(rec.menuSummary) ? rec.menuSummary : [],
+            rawMaterialActuals: Array.isArray(rec.rawMaterialActuals) ? rec.rawMaterialActuals : [],
+            postEventNotes: rec.postEventNotes || '',
+            ingestedAt: new Date()
+          }
+        },
+        upsert: true
+      }
+    }));
+
+    const result = await HistoricalEvent.bulkWrite(bulkOps);
+    res.json({
+      success: true,
+      ingestedCount: (result.upsertedCount || 0) + (result.modifiedCount || 0) + (result.matchedCount || 0),
+      message: `Successfully ingested ${records.length} legacy events into learning memory.`
+    });
+  } catch (err) {
+    console.error('Historical Batch Ingestion Error:', err);
     res.status(500).json({ error: err.message });
   }
 });
