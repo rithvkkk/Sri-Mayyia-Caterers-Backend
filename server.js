@@ -230,9 +230,11 @@ const supplierSchema = new mongoose.Schema({
   _id: { type: String, required: true },
   name: { type: String, required: true },
   category: { type: String, required: true }, // Grocery, Dairy, Veg/Fruit, Fuel
-  contact: { type: String, required: true },
-  phone: { type: String, required: true }
-});
+  contact: { type: String, default: '' },
+  phone: { type: String, required: true },
+  address: { type: String, default: '' },
+  email: { type: String, default: '' }
+}, { timestamps: true });
 const Supplier = mongoose.model('Supplier', supplierSchema);
 
 // 5. Labor Rate
@@ -476,6 +478,8 @@ const eventSchema = new mongoose.Schema({
     pricePerPlate: { type: Number, required: true },
     subtotal: { type: Number, default: 0 },
     taxRate: { type: Number, default: 18 },
+    taxType: { type: String, default: 'GST' }, // 'GST' | 'NON_GST'
+    isInterState: { type: Boolean, default: false },
     taxAmount: { type: Number, default: 0 },
     totalAmount: { type: Number, default: 0 },
     advancePaid: { type: Number, default: 0 },
@@ -720,6 +724,48 @@ app.post('/api/historical-events/ingest-batch', async (req, res) => {
     });
   } catch (err) {
     console.error('Historical Batch Ingestion Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────── LABOUR ATTENDANCE BATCH IMPORT ───────────────────
+app.post('/api/labour-attendance/batch', async (req, res) => {
+  try {
+    const records = req.body;
+    if (!Array.isArray(records) || records.length === 0) {
+      return res.status(400).json({ error: 'Expected an array of attendance records.' });
+    }
+
+    const bulkOps = records.map(rec => ({
+      updateOne: {
+        filter: { _id: String(rec.id || rec._id || `att_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`) },
+        update: {
+          $set: {
+            workerId: String(rec.workerId || 'unknown'),
+            workerName: String(rec.workerName || 'Staff Member'),
+            date: String(rec.date || new Date().toISOString().split('T')[0]),
+            eventId: String(rec.eventId || ''),
+            eventName: String(rec.eventName || ''),
+            shiftType: String(rec.shiftType || 'Full Day'),
+            shifts: Number(rec.shifts || 1),
+            dailyRate: Number(rec.dailyRate || 900),
+            totalWage: Number(rec.totalWage || 900),
+            status: String(rec.status || 'Present'),
+            notes: String(rec.notes || '')
+          }
+        },
+        upsert: true
+      }
+    }));
+
+    const result = await LabourAttendance.bulkWrite(bulkOps);
+    res.json({
+      success: true,
+      count: (result.upsertedCount || 0) + (result.modifiedCount || 0) + (result.matchedCount || 0),
+      message: `Successfully imported ${records.length} labour attendance records.`
+    });
+  } catch (err) {
+    console.error('Labour Attendance Batch Error:', err);
     res.status(500).json({ error: err.message });
   }
 });
