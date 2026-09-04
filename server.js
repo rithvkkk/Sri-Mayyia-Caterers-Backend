@@ -231,7 +231,7 @@ const supplierSchema = new mongoose.Schema({
   name: { type: String, required: true },
   category: { type: String, required: true }, // Grocery, Dairy, Veg/Fruit, Fuel
   contact: { type: String, default: '' },
-  phone: { type: String, required: true },
+  phone: { type: String, default: '' },
   address: { type: String, default: '' },
   email: { type: String, default: '' }
 }, { timestamps: true });
