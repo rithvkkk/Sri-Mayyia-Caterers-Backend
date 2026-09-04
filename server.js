@@ -383,7 +383,7 @@ const subFunctionSchema = new mongoose.Schema({
   id: { type: String, required: true },
   name: { type: String, required: true },
   date: { type: String, default: '' },
-  guestCount: { type: Number, required: true },
+  guestCount: { type: Number, default: 100 },
   menuItems: [{ type: String }], // Array of dish IDs
   clientNotes: { type: String, default: '' }
 }, { _id: false });
@@ -444,16 +444,19 @@ const reminderSchema = new mongoose.Schema({
 const eventSchema = new mongoose.Schema({
   _id: { type: String, required: true }, // EV-YYYY-XXX
   customer: {
-    name: { type: String, required: true },
-    phone: { type: String, required: true },
-    email: { type: String, required: true }
+    name: { type: String, required: true, default: 'Client' },
+    phone: { type: String, default: '' },
+    email: { type: String, default: '' }
   },
-  eventType: { type: String, required: true },
-  venueId: { type: String, required: true },
+  eventType: { type: String, default: 'Wedding Reception' },
+  venueId: { type: String, default: '' },
   date: { type: String, required: true }, // Primary / Commencement Date
   dates: [{ type: String }], // Array of multiple event dates
   menuNotes: { type: String, default: '' },
   status: { type: String, default: 'Inquiry' }, // Inquiry, Confirmed, Completed, Cancelled
+  createdBy: { type: String, default: 'admin' },
+  createdByName: { type: String, default: 'Admin' },
+  salesExecutive: { type: String, default: 'admin' },
   reminders: [reminderSchema],
   subFunctions: [subFunctionSchema],
   manualMaterials: [manualMaterialSchema],
@@ -475,9 +478,9 @@ const eventSchema = new mongoose.Schema({
   },
   laborAllocations: [laborAllocationSchema],
   billing: {
-    pricePerPlate: { type: Number, required: true },
+    pricePerPlate: { type: Number, default: 800 },
     subtotal: { type: Number, default: 0 },
-    taxRate: { type: Number, default: 18 },
+    taxRate: { type: Number, default: 5 },
     taxType: { type: String, default: 'GST' }, // 'GST' | 'NON_GST'
     isInterState: { type: Boolean, default: false },
     taxAmount: { type: Number, default: 0 },
@@ -549,6 +552,63 @@ const createCRUDRoutes = (app, routePath, Model) => {
     }
   });
 };
+
+// Dedicated resilient creation for Events (guarantees safe ID generation, field fallbacks, and upsert)
+const handleEventCreation = async (req, res) => {
+  try {
+    const payload = { ...req.body };
+    const year = new Date().getFullYear();
+
+    let targetId = payload._id || payload.id;
+    if (targetId) {
+      const existing = await Event.findById(targetId);
+      if (existing) {
+        // If an event exists with this exact ID, calculate the next safe sequential ID
+        const allYearEvents = await Event.find({ _id: new RegExp(`^EV-${year}-`) }, '_id');
+        let maxNum = 0;
+        allYearEvents.forEach(e => {
+          const parts = e._id.split('-');
+          const n = parseInt(parts[2], 10);
+          if (!isNaN(n) && n > maxNum) maxNum = n;
+        });
+        targetId = `EV-${year}-${String(maxNum + 1).padStart(3, '0')}`;
+      }
+    } else {
+      const allYearEvents = await Event.find({ _id: new RegExp(`^EV-${year}-`) }, '_id');
+      let maxNum = 0;
+      allYearEvents.forEach(e => {
+        const parts = e._id.split('-');
+        const n = parseInt(parts[2], 10);
+        if (!isNaN(n) && n > maxNum) maxNum = n;
+      });
+      targetId = `EV-${year}-${String(maxNum + 1).padStart(3, '0')}`;
+    }
+
+    payload._id = targetId;
+    payload.id = targetId;
+
+    if (!payload.customer) payload.customer = {};
+    if (!payload.customer.name) payload.customer.name = 'Client';
+    if (payload.customer.phone === undefined) payload.customer.phone = '';
+    if (payload.customer.email === undefined) payload.customer.email = '';
+    if (payload.venueId === undefined) payload.venueId = '';
+    if (!payload.eventType) payload.eventType = 'Wedding Reception';
+    if (!payload.date) payload.date = new Date().toISOString().split('T')[0];
+    if (!Array.isArray(payload.dates) || payload.dates.length === 0) payload.dates = [payload.date];
+    if (!payload.createdBy) payload.createdBy = 'admin';
+    if (!payload.createdByName) payload.createdByName = 'Admin';
+    if (!payload.salesExecutive) payload.salesExecutive = payload.createdBy || 'admin';
+
+    const item = await Event.findByIdAndUpdate(targetId, payload, { upsert: true, new: true, setDefaultsOnInsert: true });
+    res.status(201).json(toJSON(item));
+  } catch (err) {
+    console.error('Error in resilient event creation:', err);
+    res.status(400).json({ error: err.message });
+  }
+};
+
+app.post('/api/events', handleEventCreation);
+app.post('/events', handleEventCreation);
 
 createCRUDRoutes(app, '/api/venues', Venue);
 createCRUDRoutes(app, '/api/raw-materials', RawMaterial);
