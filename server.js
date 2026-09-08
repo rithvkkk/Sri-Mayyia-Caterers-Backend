@@ -1080,14 +1080,26 @@ app.post('/api/seed', async (req, res) => {
         eventType: 'Authentic Andhra Wedding Feast',
         venueId: 'v3',
         date: '2026-06-15',
+        dates: ['2026-06-15', '2026-06-16'],
         status: 'Completed',
+        reminders: [],
         subFunctions: [
-          { id: 'sf-1', name: 'Traditional Andhra Lunch', guestCount: 500, menuItems: ['d_a1', 'd_a2', 'd_a6', 'd_a8', 'd_a9', 'd_a10', 'd_a12', 'd_a15', 'd_a18', 'd_a20', 'd_a22', 'd_a24', 'd_a31', 'd_a36', 'd_a37'] }
+          { id: 'sf-1', name: 'Traditional Andhra Lunch', date: '2026-06-15', guestCount: 500, menuItems: ['si_rc_1', 'si_rc_2', 'si_rc_potali', 'si_grv_1', 'si_grv_9', 'si_grv_8', 'si_grv_16', 'si_grv_24', 'sd_ply_1', 'sd_sld_1', 'sw_hol_1', 'sw_hol_8', 'sw_hol_appi', 'bev_hot_1', 'fin_tam_2'], clientNotes: 'Authentic Guntur style spicy rasam and freshly made podi on plantain leaves.' }
         ],
+        transport: {
+          vehicles: [
+            { id: 'vh-1', vehicleType: 'Mini-Truck (14ft)', vehicleNumber: 'KA-04-AB-1234', trips: 2, ratePerTrip: 3500, totalCost: 7000, driverName: 'Mani Swamy', driverPhone: '+91 98450 11223' },
+            { id: 'vh-2', vehicleType: 'Tempo Traveller / Eeco', vehicleNumber: 'KA-04-CD-5678', trips: 1, ratePerTrip: 2000, totalCost: 2000, driverName: 'Suresh Gowda', driverPhone: '+91 98450 44556' }
+          ],
+          porters: [
+            { id: 'pt-1', description: 'Heavy Utensils Loading & Unloading', count: 4, ratePerPorter: 750, totalCost: 3000 }
+          ],
+          totalTransportCost: 12000
+        },
         execution: {
-          teamRoutes: { 'd_a1': 'internal', 'd_a2': 'outsourced', 'd_a9': 'internal', 'd_a10': 'internal', 'd_a15': 'agency' },
-          dishStatuses: { 'd_a1': 'Served', 'd_a2': 'Served', 'd_a9': 'Served', 'd_a10': 'Served', 'd_a15': 'Served' },
-          costs: { rawMaterialsCost: 185000, laborCost: 45000, venueRent: 200000, otherExpenses: 25000 }
+          teamRoutes: { 'si_rc_1': 'internal', 'si_rc_2': 'internal', 'si_rc_potali': 'outsourced', 'si_grv_1': 'internal', 'si_grv_9': 'internal', 'sw_hol_1': 'agency' },
+          dishStatuses: { 'si_rc_1': 'Served', 'si_rc_2': 'Served', 'si_rc_potali': 'Served', 'si_grv_1': 'Served', 'si_grv_9': 'Served', 'sw_hol_1': 'Served' },
+          costs: { rawMaterialsCost: 185000, laborCost: 45000, transportCost: 12000, venueRent: 200000, otherExpenses: 25000 }
         },
         laborAllocations: [
           { agencyId: 'a1', laborType: 'Captain/Supervisor', count: 4, shifts: 2, totalPayout: 11200, status: 'Paid' },
@@ -1104,15 +1116,28 @@ app.post('/api/seed', async (req, res) => {
         eventType: 'Tamil Nadu Style Gala Breakfast & Evening High Tea',
         venueId: 'v1',
         date: '2026-07-28',
+        dates: ['2026-07-28'],
         status: 'Confirmed',
-        subFunctions: [
-          { id: 'sf-2', name: 'Tamil Nadu Traditional Breakfast', guestCount: 300, menuItems: ['d_tn1', 'd_tn2', 'd_tn3', 'd_tn7', 'd_tn8', 'd_tn9', 'd_tn12'] },
-          { id: 'sf-3', name: 'Evening High Tea & Refreshments', guestCount: 250, menuItems: ['d_s1', 'd_s2', 'd_s5', 'd_s8', 'd_s9', 'd_s12', 'd_s14'] }
+        reminders: [
+          { id: 'rem-1', date: '2026-07-25', time: '11:00', note: 'Confirm morning filter coffee live dispenser installation with team', priority: 'High', completed: true, createdAt: '2026-07-20T10:00:00Z' }
         ],
+        subFunctions: [
+          { id: 'sf-2', name: 'Tamil Nadu Traditional Breakfast', date: '2026-07-28', guestCount: 300, menuItems: ['si_dsa_1', 'si_idl_5', 'si_dsa_4', 'si_grv_1', 'sd_acc_1', 'bev_hot_1'], clientNotes: 'Hot filter coffee in brass davarah-tumbler for all senior family guests.' },
+          { id: 'sf-3', name: 'Evening High Tea & Refreshments', date: '2026-07-28', guestCount: 250, menuItems: ['app_snk_8', 'app_cht_1', 'bev_ffj_1', 'bev_mkl_1', 'sw_hol_4', 'fin_pan_1'], clientNotes: 'Serve mocktails chilled on entrance arrival.' }
+        ],
+        transport: {
+          vehicles: [
+            { id: 'vh-3', vehicleType: 'Tata Ace (Chhota Hathi)', vehicleNumber: 'KA-02-EE-9012', trips: 2, ratePerTrip: 2500, totalCost: 5000, driverName: 'Raghu K', driverPhone: '+91 98801 23456' }
+          ],
+          porters: [
+            { id: 'pt-2', description: 'Morning setup porter team', count: 3, ratePerPorter: 650, totalCost: 1950 }
+          ],
+          totalTransportCost: 6950
+        },
         execution: {
-          teamRoutes: { 'd_tn1': 'internal', 'd_tn2': 'internal', 'd_tn7': 'internal', 'd_s5': 'outsourced', 'd_s8': 'agency' },
-          dishStatuses: { 'd_tn1': 'Preparing', 'd_tn2': 'Preparing', 'd_tn7': 'Preparing', 'd_s5': 'Pending', 'd_s8': 'Pending' },
-          costs: { rawMaterialsCost: 120000, laborCost: 28000, venueRent: 150000, otherExpenses: 15000 }
+          teamRoutes: { 'si_dsa_1': 'internal', 'si_idl_5': 'internal', 'app_snk_8': 'internal', 'app_cht_1': 'outsourced', 'bev_mkl_1': 'agency' },
+          dishStatuses: { 'si_dsa_1': 'Preparing', 'si_idl_5': 'Preparing', 'app_snk_8': 'Pending', 'app_cht_1': 'Pending', 'bev_mkl_1': 'Pending' },
+          costs: { rawMaterialsCost: 120000, laborCost: 28000, transportCost: 6950, venueRent: 150000, otherExpenses: 15000 }
         },
         laborAllocations: [
           { agencyId: 'a1', laborType: 'Captain/Supervisor', count: 2, shifts: 1, totalPayout: 2800, status: 'Verified' },
@@ -1129,14 +1154,29 @@ app.post('/api/seed', async (req, res) => {
         eventType: 'Royal Rajasthani Imperial Dinner',
         venueId: 'v2',
         date: '2026-08-20',
+        dates: ['2026-08-20', '2026-08-21'],
         status: 'Inquiry',
-        subFunctions: [
-          { id: 'sf-4', name: 'Royal Rajasthani Banquet', guestCount: 400, menuItems: ['d_r1', 'd_r2', 'd_r3', 'd_r9', 'd_r10', 'd_r13', 'd_r16', 'd_r19', 'd_r26', 'd_r28'] }
+        reminders: [
+          { id: 'rem-2', date: '2026-08-19', time: '15:30', note: 'Call client Vikramaditya for final menu approval & token advance confirmation', priority: 'High', completed: false, createdAt: '2026-08-17T12:00:00Z' },
+          { id: 'rem-3', date: '2026-08-20', time: '09:00', note: 'Send revised tax quotation with 15% discount for 2-day booking', priority: 'Medium', completed: false, createdAt: '2026-08-18T14:30:00Z' }
         ],
+        subFunctions: [
+          { id: 'sf-4', name: 'Royal Rajasthani Banquet', date: '2026-08-20', guestCount: 400, menuItems: ['ni_brd_chur', 'ni_brd_1', 'ni_grv_2', 'ni_grv_6', 'ni_rc_makh', 'app_str_sp1', 'sw_nor_1', 'sw_nor_chan', 'sw_ice_triv', 'fin_pan_4'], clientNotes: 'Pure desi cow ghee only for Dal Baati Churma. 50 Pax separate Jain counter without onion/garlic.' }
+        ],
+        transport: {
+          vehicles: [
+            { id: 'vh-4', vehicleType: 'Refrigerated Fresh Transport Van', vehicleNumber: 'KA-01-RF-7788', trips: 1, ratePerTrip: 4500, totalCost: 4500, driverName: 'Anand Kumar', driverPhone: '+91 99112 33445' },
+            { id: 'vh-5', vehicleType: 'Mini-Truck (14ft)', vehicleNumber: 'KA-01-MT-9900', trips: 2, ratePerTrip: 3200, totalCost: 6400, driverName: 'Shivanna', driverPhone: '+91 99112 77889' }
+          ],
+          porters: [
+            { id: 'pt-3', description: 'Kitchen degchi and brassware loading porters', count: 4, ratePerPorter: 700, totalCost: 2800 }
+          ],
+          totalTransportCost: 13700
+        },
         execution: {
-          teamRoutes: { 'd_r1': 'internal', 'd_r9': 'internal', 'd_r19': 'internal', 'd_r28': 'outsourced' },
-          dishStatuses: { 'd_r1': 'Pending', 'd_r9': 'Pending', 'd_r19': 'Pending', 'd_r28': 'Pending' },
-          costs: { rawMaterialsCost: 195000, laborCost: 48000, venueRent: 120000, otherExpenses: 20000 }
+          teamRoutes: { 'ni_brd_chur': 'internal', 'ni_grv_2': 'internal', 'app_str_sp1': 'internal', 'sw_nor_1': 'outsourced' },
+          dishStatuses: { 'ni_brd_chur': 'Pending', 'ni_grv_2': 'Pending', 'app_str_sp1': 'Pending', 'sw_nor_1': 'Pending' },
+          costs: { rawMaterialsCost: 195000, laborCost: 48000, transportCost: 13700, venueRent: 120000, otherExpenses: 20000 }
         },
         laborAllocations: [
           { agencyId: 'a1', laborType: 'Captain/Supervisor', count: 3, shifts: 1, totalPayout: 4200, status: 'Pending' },
@@ -1148,19 +1188,33 @@ app.post('/api/seed', async (req, res) => {
         }
       },
       {
-        _id: 'EV-2026-004',
+        _id: 'EV-2026-09-12',
         customer: { name: 'Kavitha & Arvind Rao', phone: '+91 99887 66554', email: 'arvind.rao@techindia.io' },
         eventType: 'Grand Multi-Cuisine Extravaganza Dinner',
         venueId: 'v3',
         date: '2026-09-12',
+        dates: ['2026-09-12', '2026-09-13'],
         status: 'Confirmed',
-        subFunctions: [
-          { id: 'sf-5', name: 'Global Multi-Cuisine Gala Dinner', guestCount: 650, menuItems: ['d_d1', 'd_d4', 'd_d12', 'd_d15', 'd_d23', 'd_d26', 'd_d45', 'd_d47', 'd_d56', 'd_d64', 'd_d65', 'd_d81', 'd_d86', 'd_d102', 'd_d105', 'd_d110', 'd_d113'] }
+        reminders: [
+          { id: 'rem-4', date: '2026-09-08', time: '17:00', note: 'Pre-event banquet layout briefing with Arvind Rao', priority: 'Low', completed: false, createdAt: '2026-08-15T09:00:00Z' }
         ],
+        subFunctions: [
+          { id: 'sf-5', name: 'Global Multi-Cuisine Gala Dinner', date: '2026-09-12', guestCount: 650, menuItems: ['glb_ita_1', 'glb_chn_1', 'app_cht_13', 'app_str_op1', 'bev_mkl_3', 'ni_grv_6', 'si_rc_flw', 'sw_hol_cova', 'sw_ice_fig', 'fin_pan_1'], clientNotes: 'Live Artisan Pasta counter and Turkish Kunafa dessert live station requested.' }
+        ],
+        transport: {
+          vehicles: [
+            { id: 'vh-6', vehicleType: 'Heavy Logistics Truck', vehicleNumber: 'KA-05-TR-4321', trips: 2, ratePerTrip: 5000, totalCost: 10000, driverName: 'Naveen Kumar', driverPhone: '+91 98440 66778' },
+            { id: 'vh-7', vehicleType: 'Tata Ace (Chhota Hathi)', vehicleNumber: 'KA-05-CH-8765', trips: 2, ratePerTrip: 2500, totalCost: 5000, driverName: 'Prakash', driverPhone: '+91 98440 88990' }
+          ],
+          porters: [
+            { id: 'pt-4', description: 'Complete event setup & breakdown porters', count: 6, ratePerPorter: 800, totalCost: 4800 }
+          ],
+          totalTransportCost: 19800
+        },
         execution: {
-          teamRoutes: { 'd_d15': 'agency', 'd_d26': 'outsourced', 'd_d45': 'internal', 'd_d65': 'internal', 'd_d81': 'internal' },
-          dishStatuses: { 'd_d15': 'Pending', 'd_d26': 'Pending', 'd_d45': 'Pending', 'd_d65': 'Pending', 'd_d81': 'Pending' },
-          costs: { rawMaterialsCost: 340000, laborCost: 85000, venueRent: 200000, otherExpenses: 40000 }
+          teamRoutes: { 'glb_ita_1': 'agency', 'glb_chn_1': 'outsourced', 'app_cht_13': 'internal', 'ni_grv_6': 'internal', 'sw_ice_fig': 'internal' },
+          dishStatuses: { 'glb_ita_1': 'Pending', 'glb_chn_1': 'Pending', 'app_cht_13': 'Pending', 'ni_grv_6': 'Pending', 'sw_ice_fig': 'Pending' },
+          costs: { rawMaterialsCost: 340000, laborCost: 85000, transportCost: 19800, venueRent: 200000, otherExpenses: 40000 }
         },
         laborAllocations: [
           { agencyId: 'a1', laborType: 'Captain/Supervisor', count: 5, shifts: 2, totalPayout: 14000, status: 'Pending' },
