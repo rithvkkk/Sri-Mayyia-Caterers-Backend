@@ -1269,6 +1269,37 @@ app.get('/api/historical-events', async (req, res) => {
   }
 });
 
+app.post('/api/historical-events', async (req, res) => {
+  try {
+    const rec = req.body;
+    if (!rec) return res.status(400).json({ error: 'Payload required' });
+    const id = String(rec.id || rec._id || `hist_${Date.now()}`);
+    const doc = await HistoricalEvent.findOneAndUpdate(
+      { _id: id },
+      {
+        $set: {
+          eventType: rec.eventType || 'Wedding Catering',
+          guestCount: Number(rec.guestCount || rec.actualPax || 100),
+          actualPax: Number(rec.actualPax || rec.guestCount || 100),
+          serviceStyle: rec.serviceStyle || 'Traditional Banana Leaf',
+          season: rec.season || 'Regular',
+          foodCostPerPax: Number(rec.foodCostPerPax || 320),
+          wastePercent: Number(rec.wastePercent || 4.5),
+          netMarginPercent: Number(rec.netMarginPercent || 45.0),
+          menuSummary: Array.isArray(rec.menuSummary) ? rec.menuSummary : [],
+          rawMaterialActuals: Array.isArray(rec.rawMaterialActuals) ? rec.rawMaterialActuals : [],
+          postEventNotes: rec.postEventNotes || '',
+          ingestedAt: new Date()
+        }
+      },
+      { upsert: true, new: true }
+    );
+    res.json({ success: true, event: { ...doc.toObject(), id: doc._id } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/historical-events/ingest-batch', async (req, res) => {
   try {
     const records = req.body;
@@ -1496,25 +1527,45 @@ app.put('/api/company-profile', async (req, res) => {
 // Seed endpoint
 app.post('/api/seed', async (req, res) => {
   try {
-    // 1. Clear existing database collections
-    await Promise.all([
-      Venue.deleteMany({}),
-      RawMaterial.deleteMany({}),
-      Dish.deleteMany({}),
-      Supplier.deleteMany({}),
-      LaborRate.deleteMany({}),
-      Agency.deleteMany({}),
-      Event.deleteMany({}),
-      CompanyProfile.deleteMany({}),
-      User.deleteMany({}),
-      Vessel.deleteMany({}),
-      Provision.deleteMany({}),
-      Vegetable.deleteMany({}),
-      LabourWorker.deleteMany({}),
-      MenuCategory.deleteMany({}),
-      VendorCategory.deleteMany({}),
-      LabourCategory.deleteMany({})
-    ]);
+    const includeDemo = req.query.includeDemo === 'true' || req.body?.includeDemo === true;
+
+    if (includeDemo) {
+      // 1. Full Demo Environment Reset
+      await Promise.all([
+        Venue.deleteMany({}),
+        RawMaterial.deleteMany({}),
+        Dish.deleteMany({}),
+        Supplier.deleteMany({}),
+        LaborRate.deleteMany({}),
+        Agency.deleteMany({}),
+        Event.deleteMany({}),
+        CompanyProfile.deleteMany({}),
+        User.deleteMany({}),
+        Vessel.deleteMany({}),
+        Provision.deleteMany({}),
+        Vegetable.deleteMany({}),
+        LabourWorker.deleteMany({}),
+        MenuCategory.deleteMany({}),
+        VendorCategory.deleteMany({}),
+        LabourCategory.deleteMany({})
+      ]);
+    } else {
+      // 1. Master Reference Data Reset ONLY (Preserves all operational data: Events, Venues, Suppliers, etc.)
+      const dishCount = await Dish.countDocuments();
+      const shouldResetDishes = dishCount === 0 || req.query.forceMenuReset === 'true' || req.body?.forceMenuReset === true;
+
+      const collectionsToClear = [
+        RawMaterial.deleteMany({}),
+        LaborRate.deleteMany({}),
+        MenuCategory.deleteMany({}),
+        VendorCategory.deleteMany({}),
+        LabourCategory.deleteMany({})
+      ];
+      if (shouldResetDishes) {
+        collectionsToClear.push(Dish.deleteMany({}));
+      }
+      await Promise.all(collectionsToClear);
+    }
 
     // 2. Mock Data Definitions
     const initialVenues = [
@@ -1867,26 +1918,53 @@ app.post('/api/seed', async (req, res) => {
     ];
 
     // 3. Create items in Atlas
-    await Promise.all([
-      Venue.create(initialVenues),
+    const currentDishCount = await Dish.countDocuments();
+    const shouldInsertDishes = currentDishCount === 0 || req.query.forceMenuReset === 'true' || req.body?.forceMenuReset === true;
+
+    const masterReferenceInserts = [
       RawMaterial.create(initialRawMaterials),
-      Dish.create(initialDishes),
-      Supplier.create(initialSuppliers),
       LaborRate.create(initialLaborRates),
-      Agency.create(initialAgencies),
-      Event.create(initialEvents),
-      CompanyProfile.create(defaultProfile),
-      User.create(initialUsers),
-      Vessel.create(initialVessels),
-      Provision.create(initialProvisions),
-      Vegetable.create(initialVegetables),
-      LabourWorker.create(initialLabourWorkers),
       MenuCategory.create(initialMenuCategories),
       VendorCategory.create(initialVendorCategories),
       LabourCategory.create(initialLabourCategories)
-    ]);
+    ];
 
-    res.json({ success: true, message: 'Seeded Cloud Database successfully for Sri Mayyia Caterers' });
+    if (shouldInsertDishes) {
+      masterReferenceInserts.push(Dish.create(initialDishes));
+    }
+
+    // Seed CompanyProfile and Admin User only if empty
+    const profileCount = await CompanyProfile.countDocuments();
+    if (profileCount === 0) {
+      masterReferenceInserts.push(CompanyProfile.create(defaultProfile));
+    }
+    const userCount = await User.countDocuments();
+    if (userCount === 0) {
+      masterReferenceInserts.push(User.create(initialUsers));
+    }
+
+    if (includeDemo) {
+      masterReferenceInserts.push(
+        Venue.create(initialVenues),
+        Supplier.create(initialSuppliers),
+        Agency.create(initialAgencies),
+        Event.create(initialEvents),
+        Vessel.create(initialVessels),
+        Provision.create(initialProvisions),
+        Vegetable.create(initialVegetables),
+        LabourWorker.create(initialLabourWorkers)
+      );
+    }
+
+    await Promise.all(masterReferenceInserts);
+
+    res.json({
+      success: true,
+      mode: includeDemo ? 'demo_and_masters' : 'master_reference_only',
+      message: includeDemo
+        ? 'Seeded Cloud Database with demo dataset & master records successfully.'
+        : 'Master Reference Catalog (Menu SKUs, Vendor & Labour Categories, Base Ingredients) initialized successfully.'
+    });
   } catch (err) {
     console.error('Seeding error:', err);
     res.status(500).json({ error: err.message });
