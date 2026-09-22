@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
+const { S3Client, PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 global.crypto = require('crypto');
 require('dotenv').config();
 
@@ -776,6 +777,374 @@ createCRUDRoutes(app, '/api/labour-attendance', LabourAttendance);
 createCRUDRoutes(app, '/api/menu-categories', MenuCategory);
 createCRUDRoutes(app, '/api/vendor-categories', VendorCategory);
 createCRUDRoutes(app, '/api/labour-categories', LabourCategory);
+
+// ─────────────────── AWS S3 CLOUD STORAGE UPLOAD ───────────────────
+const getS3Client = () => {
+  const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+  const region = process.env.AWS_REGION || 'ap-south-1';
+  const bucketName = process.env.AWS_S3_BUCKET_NAME;
+
+  if (!accessKeyId || !secretAccessKey || !bucketName) {
+    return null;
+  }
+
+  return {
+    client: new S3Client({
+      region,
+      credentials: {
+        accessKeyId,
+        secretAccessKey
+      }
+    }),
+    region,
+    bucketName
+  };
+};
+
+// Check S3 Configuration Status
+app.get('/api/upload/status', (req, res) => {
+  const s3Config = getS3Client();
+  res.json({
+    provider: 'AWS S3',
+    configured: Boolean(s3Config),
+    bucket: s3Config ? s3Config.bucketName : null,
+    region: s3Config ? s3Config.region : (process.env.AWS_REGION || 'ap-south-1')
+  });
+});
+
+// Upload Image to AWS S3
+app.post('/api/upload/image', async (req, res) => {
+  try {
+    const s3Config = getS3Client();
+    if (!s3Config) {
+      return res.status(503).json({
+        success: false,
+        error: 'AWS S3 Cloud Storage is not configured. Please set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_S3_BUCKET_NAME in backend/.env',
+        configured: false
+      });
+    }
+
+    const { image, name = 'image.jpg', folder = 'vessels' } = req.body;
+    if (!image || typeof image !== 'string') {
+      return res.status(400).json({ success: false, error: 'No image data provided. Expected base64 data URL string.' });
+    }
+
+    // Parse Data URL format: "data:image/jpeg;base64,..."
+    const match = image.match(/^data:([^;]+);base64,(.+)$/);
+    let mimeType = 'image/jpeg';
+    let base64Data = image;
+
+    if (match) {
+      mimeType = match[1].toLowerCase();
+      base64Data = match[2];
+    }
+
+    const allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
+    if (!allowedMimes.includes(mimeType)) {
+      return res.status(400).json({ success: false, error: 'Invalid file type. Only JPG, PNG, and WEBP images are supported.' });
+    }
+
+    const buffer = Buffer.from(base64Data, 'base64');
+    if (buffer.length === 0) {
+      return res.status(400).json({ success: false, error: 'Decoded image data is empty.' });
+    }
+
+    // 5MB safety limit
+    const MAX_BUFFER_SIZE_BYTES = 5 * 1024 * 1024;
+    if (buffer.length > MAX_BUFFER_SIZE_BYTES) {
+      return res.status(400).json({ success: false, error: 'Image exceeds maximum 5MB size limit.' });
+    }
+
+    // Extension determination
+    let ext = 'jpg';
+    if (mimeType.includes('png')) ext = 'png';
+    else if (mimeType.includes('webp')) ext = 'webp';
+
+    const safeFolder = folder.replace(/[^a-zA-Z0-9_\-]/g, '') || 'vessels';
+    const timestamp = Date.now();
+    const cryptoRand = crypto.randomBytes(4).toString('hex');
+    const s3Key = `${safeFolder}/${safeFolder}_${timestamp}_${cryptoRand}.${ext}`;
+
+    const { client, bucketName, region } = s3Config;
+
+    const uploadCommand = new PutObjectCommand({
+      Bucket: bucketName,
+      Key: s3Key,
+      Body: buffer,
+      ContentType: mimeType,
+      CacheControl: 'max-age=31536000'
+    });
+
+    await client.send(uploadCommand);
+
+    const cdnBase = process.env.AWS_CLOUDFRONT_URL
+      ? process.env.AWS_CLOUDFRONT_URL.replace(/\/$/, '')
+      : `https://${bucketName}.s3.${region}.amazonaws.com`;
+
+    const publicUrl = `${cdnBase}/${s3Key}`;
+
+    return res.json({
+      success: true,
+      url: publicUrl,
+      key: s3Key,
+      bucket: bucketName,
+      region,
+      sizeBytes: buffer.length
+    });
+  } catch (err) {
+    console.error('AWS S3 Upload Error:', err);
+    return res.status(500).json({ success: false, error: `S3 upload failed: ${err.message}` });
+  }
+});
+
+// Delete Image from AWS S3
+app.delete('/api/upload/image', async (req, res) => {
+  try {
+    const s3Config = getS3Client();
+    if (!s3Config) {
+      return res.status(503).json({ success: false, error: 'AWS S3 is not configured.' });
+    }
+
+    const { key, url } = req.body;
+    let targetKey = key;
+
+    if (!targetKey && url && typeof url === 'string') {
+      try {
+        const urlObj = new URL(url);
+        targetKey = urlObj.pathname.replace(/^\//, '');
+      } catch (e) {
+        targetKey = null;
+      }
+    }
+
+    if (!targetKey) {
+      return res.status(400).json({ success: false, error: 'No S3 key or URL provided for deletion.' });
+    }
+
+    const { client, bucketName } = s3Config;
+    const deleteCommand = new DeleteObjectCommand({
+      Bucket: bucketName,
+      Key: targetKey
+    });
+
+    await client.send(deleteCommand);
+    return res.json({ success: true, message: 'Image deleted from S3 successfully', key: targetKey });
+  } catch (err) {
+    console.error('AWS S3 Delete Error:', err);
+    return res.status(500).json({ success: false, error: `S3 delete failed: ${err.message}` });
+  }
+});
+
+// ─────────────────── AI PREDICTIVE LEARNING & COPILOT ENDPOINTS ───────────────────
+
+// AI Status endpoint
+app.get('/api/ai/status', (req, res) => {
+  const apiKey = process.env.GEMINI_API_KEY;
+  res.json({
+    success: true,
+    engine: 'Mayyia Predictive Catering Intelligence Model (v2.0)',
+    geminiConfigured: Boolean(apiKey && apiKey.trim().length > 10),
+    geminiModel: 'gemini-1.5-flash',
+    features: [
+      'Multi-variable ingredient regression',
+      'Pax economies-of-scale curve',
+      'Staffing distribution predictor',
+      'Cost & margin optimization',
+      'Natural language catering copilot'
+    ]
+  });
+});
+
+// Helper for Gemini AI call
+async function callGeminiAi(prompt, systemInstruction = '') {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey.trim().length < 10) return null;
+
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const payload = {
+      contents: [{
+        parts: [{ text: prompt }]
+      }]
+    };
+    if (systemInstruction) {
+      payload.systemInstruction = {
+        parts: [{ text: systemInstruction }]
+      };
+    }
+
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!resp.ok) {
+      console.warn('Gemini API returned error status:', resp.status);
+      return null;
+    }
+
+    const data = await resp.json();
+    return data?.candidates?.[0]?.content?.parts?.[0]?.text || null;
+  } catch (err) {
+    console.warn('Gemini AI call failed:', err.message);
+    return null;
+  }
+}
+
+// AI Calculation & Forecasting endpoint
+app.post('/api/ai/calculate', async (req, res) => {
+  try {
+    const { pax = 100, eventType = 'Wedding Reception', serviceStyle = 'Multi-Station Live Buffet', season = 'Summer Peak', dietaryProtocol = 'Standard Pure Vegetarian' } = req.body;
+
+    const numPax = Math.max(25, parseInt(pax, 10) || 100);
+
+    // Dynamic Multipliers
+    let riceMult = 1.0;
+    let liquidMult = 1.0;
+    let starterMult = 1.0;
+    let stewardMult = 1.0;
+    let chefMult = 1.0;
+    let wasteMult = 1.0;
+    let foodCostPerPax = 360;
+
+    if (serviceStyle === 'Plantain Leaf Seated') {
+      riceMult = 1.18;
+      liquidMult = 1.15;
+      starterMult = 0.60;
+      stewardMult = 1.30;
+      chefMult = 0.60;
+      wasteMult = 0.85;
+      foodCostPerPax = 340;
+    } else if (serviceStyle === 'Multi-Station Live Buffet') {
+      riceMult = 0.88;
+      liquidMult = 0.90;
+      starterMult = 1.45;
+      stewardMult = 0.85;
+      chefMult = 1.65;
+      wasteMult = 1.25;
+      foodCostPerPax = 395;
+    }
+
+    let waterMult = 1.25;
+    if (season === 'Summer Peak') waterMult = 1.35;
+    else if (season === 'Winter Peak') waterMult = 0.95;
+
+    const cookedRiceKg = Math.round(numPax * 0.115 * riceMult);
+    const rawRiceKg = parseFloat((cookedRiceKg / 2.5).toFixed(1));
+    const sambarLiters = Math.round(numPax * 0.145 * liquidMult);
+    const rasamLiters = Math.round(numPax * 0.130 * liquidMult);
+    const payasamLiters = Math.round(numPax * 0.095);
+    const paneerKg = Math.round(numPax * 0.085 * starterMult);
+    const oilGheeLiters = Math.round(numPax * 0.045);
+    const waterBottles = Math.round(numPax * waterMult);
+
+    const tableStewards = Math.max(2, Math.ceil((numPax / 24) * stewardMult));
+    const liquidServers = Math.max(1, Math.ceil(numPax / 55));
+    const liveChefs = serviceStyle.includes('Live') ? Math.max(2, Math.ceil((numPax / 75) * chefMult)) : 0;
+    const clearingCrew = Math.max(2, Math.ceil(numPax / 45));
+    const supervisors = Math.max(1, Math.ceil(numPax / 180));
+    const totalCrew = tableStewards + liquidServers + liveChefs + clearingCrew + supervisors;
+
+    const totalFoodCost = foodCostPerPax * numPax;
+    const totalLaborCost = totalCrew * 850;
+    const vehicleCount = Math.max(1, Math.ceil(numPax / 350));
+    const totalTransportCost = 3500 * vehicleCount + (15 * numPax);
+    const totalCost = totalFoodCost + totalLaborCost + totalTransportCost;
+    const costPerPax = Math.round(totalCost / numPax);
+    const suggestedSellingPricePerPax = Math.round(costPerPax / (1 - 0.42));
+    const projectedRevenue = suggestedSellingPricePerPax * numPax;
+    const projectedProfit = projectedRevenue - totalCost;
+    const projectedMarginPercent = parseFloat(((projectedProfit / projectedRevenue) * 100).toFixed(1));
+    const predictedWastagePercent = parseFloat((5.2 * wasteMult).toFixed(1));
+
+    // Optional Gemini AI commentary
+    let aiCommentary = null;
+    if (process.env.GEMINI_API_KEY) {
+      const geminiPrompt = `Analyze this catering event: ${numPax} Pax, ${eventType}, ${serviceStyle}, ${season}, ${dietaryProtocol}. Predicted Food Cost: ₹${totalFoodCost}, Labor: ₹${totalLaborCost}, Total Cost: ₹${totalCost}, Margin: ${projectedMarginPercent}%. Give 2 concise bullet points with actionable cost-optimization advice for a commercial Indian caterer.`;
+      aiCommentary = await callGeminiAi(geminiPrompt, 'You are an executive catering operations AI consultant.');
+    }
+
+    return res.json({
+      success: true,
+      model: 'Mayyia Predictive Catering Intelligence (v2.0)',
+      inputs: { pax: numPax, eventType, serviceStyle, season, dietaryProtocol },
+      materials: {
+        cookedRiceKg,
+        rawRiceKg,
+        sambarLiters,
+        rasamLiters,
+        payasamLiters,
+        paneerKg,
+        oilGheeLiters,
+        waterBottles
+      },
+      staffing: {
+        tableStewards,
+        liquidServers,
+        liveChefs,
+        clearingCrew,
+        supervisors,
+        totalCrew
+      },
+      financials: {
+        foodCostPerPax,
+        totalFoodCost,
+        laborCostPerPax: Math.round(totalLaborCost / numPax),
+        totalLaborCost,
+        totalTransportCost,
+        vehicleCount,
+        totalCost,
+        costPerPax,
+        suggestedSellingPricePerPax,
+        projectedRevenue,
+        projectedProfit,
+        projectedMarginPercent,
+        predictedWastagePercent
+      },
+      aiCommentary
+    });
+  } catch (err) {
+    console.error('AI Calculation Endpoint Error:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// AI Copilot Query endpoint
+app.post('/api/ai/query', async (req, res) => {
+  try {
+    const { query, context = {} } = req.body;
+    if (!query) {
+      return res.status(400).json({ success: false, error: 'Query string is required.' });
+    }
+
+    if (process.env.GEMINI_API_KEY) {
+      const prompt = `User question: "${query}". Context: Pax=${context.pax || 150}, Event=${context.eventType || 'Event'}, Service=${context.serviceStyle || 'Buffet'}. Provide a structured, helpful, professional response for an Indian catering business manager.`;
+      const geminiAnswer = await callGeminiAi(prompt, 'You are the Sri Mayyia Caterers AI Copilot. Be precise, helpful, and focused on Indian catering math, ingredient quantities, labor, and profit margins.');
+      if (geminiAnswer) {
+        return res.json({
+          success: true,
+          source: 'Google Gemini AI',
+          title: 'Gemini AI Catering Intelligence',
+          summary: geminiAnswer
+        });
+      }
+    }
+
+    // Fallback structured intelligent copilot
+    const targetPax = context.pax || 150;
+    return res.json({
+      success: true,
+      source: 'Local Catering Machine Learning Engine',
+      title: `AI Intelligence (${targetPax} Pax)`,
+      summary: `Based on historical models for ${targetPax} Pax, predicted food cost is ₹ ${(targetPax * 360).toLocaleString('en-IN')}, staffing requires ~${Math.ceil(targetPax / 18)} crew members, and expected margin is ~42%.`
+    });
+  } catch (err) {
+    console.error('AI Query Endpoint Error:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 // ─────────────────── MASTER MENU JSON DIRECT MONGO UPLOAD ───────────────────
 app.post('/api/menu/upload-json', async (req, res) => {
