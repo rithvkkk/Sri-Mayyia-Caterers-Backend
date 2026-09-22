@@ -194,8 +194,16 @@ const venueSchema = new mongoose.Schema({
   name: { type: String, required: true },
   capacity: { type: Number, required: true },
   price: { type: Number, required: true },
-  address: { type: String, required: true }
-});
+  address: { type: String, required: true },
+  venueCode: { type: String, default: '' },
+  contactPerson: { type: String, default: '' },
+  contactNumber: { type: String, default: '' },
+  email: { type: String, default: '' },
+  type: { type: String, default: 'Banquet Hall' },
+  notes: { type: String, default: '' },
+  active: { type: Boolean, default: true },
+  assignedSalesPerson: { type: String, default: '' }
+}, { timestamps: true });
 const Venue = mongoose.model('Venue', venueSchema);
 
 // 2. Raw Material
@@ -229,11 +237,15 @@ const Dish = mongoose.model('Dish', dishSchema);
 const supplierSchema = new mongoose.Schema({
   _id: { type: String, required: true },
   name: { type: String, required: true },
-  category: { type: String, required: true }, // Grocery, Dairy, Veg/Fruit, Fuel
+  category: { type: String, required: true }, // Parent category
+  subCategory: { type: String, default: '' },
   contact: { type: String, default: '' },
   phone: { type: String, default: '' },
   address: { type: String, default: '' },
-  email: { type: String, default: '' }
+  email: { type: String, default: '' },
+  status: { type: String, default: 'Active' },
+  notes: { type: String, default: '' },
+  active: { type: Boolean, default: true }
 }, { timestamps: true });
 const Supplier = mongoose.model('Supplier', supplierSchema);
 
@@ -265,8 +277,11 @@ const vesselSchema = new mongoose.Schema({
   inUseQty: { type: Number, default: 0 },
   damagedQty: { type: Number, default: 0 },
   location: { type: String, default: 'Main Store' },
-  valuePerUnit: { type: Number, default: 0 }
-});
+  valuePerUnit: { type: Number, default: 0 },
+  photo: { type: String, default: '' },
+  itemCode: { type: String, default: '' },
+  minStock: { type: Number, default: 5 }
+}, { timestamps: true });
 const Vessel = mongoose.model('Vessel', vesselSchema);
 
 // 6c. Provision / Dry Grocery
@@ -278,8 +293,11 @@ const provisionSchema = new mongoose.Schema({
   stockQty: { type: Number, required: true },
   reorderLevel: { type: Number, required: true },
   costPerUnit: { type: Number, required: true },
-  supplierId: { type: String, default: '' }
-});
+  supplierId: { type: String, default: '' },
+  photo: { type: String, default: '' },
+  itemCode: { type: String, default: '' },
+  minStock: { type: Number, default: 5 }
+}, { timestamps: true });
 const Provision = mongoose.model('Provision', provisionSchema);
 
 // 6d. Vegetable / Fresh Produce
@@ -299,13 +317,22 @@ const Vegetable = mongoose.model('Vegetable', vegetableSchema);
 const labourWorkerSchema = new mongoose.Schema({
   _id: { type: String, required: true },
   name: { type: String, required: true },
-  role: { type: String, required: true }, // Chef, Assistant Chef, Captain/Supervisor, Waiter, Kitchen Helper, Cleaner
+  role: { type: String, required: true },
+  category: { type: String, default: 'Head Cook' },
   phone: { type: String, required: true },
   dailyRate: { type: Number, required: true },
   agencyId: { type: String, default: 'Direct Hire' },
   type: { type: String, default: 'Direct' }, // Direct, Agency
-  status: { type: String, default: 'Active' } // Active, On Leave, Inactive
-});
+  status: { type: String, default: 'Active' }, // Active, On Leave, Inactive
+  advancePayment: { type: Number, default: 0 },
+  advances: [{
+    id: { type: String },
+    amount: { type: Number, required: true },
+    date: { type: String, required: true },
+    notes: { type: String, default: '' },
+    createdAt: { type: Date, default: Date.now }
+  }]
+}, { timestamps: true });
 const LabourWorker = mongoose.model('LabourWorker', labourWorkerSchema);
 
 // 6f. Labour Attendance Log
@@ -324,6 +351,34 @@ const labourAttendanceSchema = new mongoose.Schema({
   notes: { type: String, default: '' }
 }, { timestamps: true });
 const LabourAttendance = mongoose.model('LabourAttendance', labourAttendanceSchema);
+
+// 6g. Menu Category Master
+const menuCategorySchema = new mongoose.Schema({
+  _id: { type: String, required: true },
+  name: { type: String, required: true },
+  description: { type: String, default: '' },
+  displayOrder: { type: Number, default: 1 },
+  active: { type: Boolean, default: true }
+}, { timestamps: true });
+const MenuCategory = mongoose.model('MenuCategory', menuCategorySchema);
+
+// 6h. Vendor Category Master
+const vendorCategorySchema = new mongoose.Schema({
+  _id: { type: String, required: true },
+  name: { type: String, required: true },
+  parentCategory: { type: String, default: '' },
+  subCategories: [{ type: String }],
+  active: { type: Boolean, default: true }
+}, { timestamps: true });
+const VendorCategory = mongoose.model('VendorCategory', vendorCategorySchema);
+
+// 6i. Labour Category Master
+const labourCategorySchema = new mongoose.Schema({
+  _id: { type: String, required: true },
+  name: { type: String, required: true },
+  active: { type: Boolean, default: true }
+}, { timestamps: true });
+const LabourCategory = mongoose.model('LabourCategory', labourCategorySchema);
 
 // 7. Company Profile
 const companyProfileSchema = new mongoose.Schema({
@@ -420,7 +475,22 @@ const vehicleExpenseSchema = new mongoose.Schema({
   ratePerTrip: { type: Number, default: 0 },
   totalCost: { type: Number, default: 0 },
   driverName: { type: String, default: '' },
-  driverPhone: { type: String, default: '' }
+  driverPhone: { type: String, default: '' },
+  date: { type: String, default: '' },
+  startLocation: { type: String, default: '' },
+  destination: { type: String, default: '' },
+  startingKm: { type: Number, default: 0 },
+  endingKm: { type: Number, default: 0 },
+  totalKm: { type: Number, default: 0 },
+  fuelType: { type: String, default: 'Diesel' },
+  fuelPricePerLitre: { type: Number, default: 95 },
+  fuelLitresUsed: { type: Number, default: 0 },
+  fuelAmount: { type: Number, default: 0 },
+  tollExpense: { type: Number, default: 0 },
+  parkingExpense: { type: Number, default: 0 },
+  driverAllowance: { type: Number, default: 0 },
+  otherExpenses: { type: Number, default: 0 },
+  notes: { type: String, default: '' }
 }, { _id: false });
 
 const porterExpenseSchema = new mongoose.Schema({
@@ -593,6 +663,27 @@ const handleEventCreation = async (req, res) => {
     if (payload.customer.email === undefined) payload.customer.email = '';
     if (payload.venueId === undefined) payload.venueId = '';
     if (!payload.eventType) payload.eventType = 'Wedding Reception';
+    // Micro Event normalization and validation
+    if (payload.eventType === 'Micro Home Event') {
+      payload.eventType = 'Micro Event';
+    }
+    if (payload.eventType === 'Micro Event') {
+      if (Array.isArray(payload.subFunctions) && payload.subFunctions.length > 0) {
+        const invalidPax = payload.subFunctions.some(sf => {
+          const count = Number(sf.guestCount);
+          return isNaN(count) || count < 50 || count > 100;
+        });
+        if (invalidPax) {
+          return res.status(400).json({ error: 'Micro Event must have between 50 and 100 Pax (guests).' });
+        }
+      }
+      if (payload.guestCount !== undefined) {
+        const count = Number(payload.guestCount);
+        if (isNaN(count) || count < 50 || count > 100) {
+          return res.status(400).json({ error: 'Micro Event must have between 50 and 100 Pax (guests).' });
+        }
+      }
+    }
     if (!payload.date) payload.date = new Date().toISOString().split('T')[0];
     if (!Array.isArray(payload.dates) || payload.dates.length === 0) payload.dates = [payload.date];
     if (!payload.createdBy) payload.createdBy = 'admin';
@@ -607,8 +698,67 @@ const handleEventCreation = async (req, res) => {
   }
 };
 
+const handleEventUpdate = async (req, res) => {
+  try {
+    const payload = { ...req.body };
+    if (payload.eventType === 'Micro Home Event') {
+      payload.eventType = 'Micro Event';
+    }
+    if (payload.eventType === 'Micro Event') {
+      if (Array.isArray(payload.subFunctions) && payload.subFunctions.length > 0) {
+        const invalidPax = payload.subFunctions.some(sf => {
+          const count = Number(sf.guestCount);
+          return isNaN(count) || count < 50 || count > 100;
+        });
+        if (invalidPax) {
+          return res.status(400).json({ error: 'Micro Event must have between 50 and 100 Pax (guests).' });
+        }
+      }
+      if (payload.guestCount !== undefined) {
+        const count = Number(payload.guestCount);
+        if (isNaN(count) || count < 50 || count > 100) {
+          return res.status(400).json({ error: 'Micro Event must have between 50 and 100 Pax (guests).' });
+        }
+      }
+    }
+    const updated = await Event.findByIdAndUpdate(req.params.id, payload, { new: true });
+    if (!updated) return res.status(404).json({ error: 'Item not found' });
+    res.json(toJSON(updated));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
+
 app.post('/api/events', handleEventCreation);
 app.post('/events', handleEventCreation);
+app.put('/api/events/:id', handleEventUpdate);
+app.put('/events/:id', handleEventUpdate);
+
+// Labour worker advance payment route
+app.post(['/api/labour-workers/:id/advance', '/labour-workers/:id/advance'], async (req, res) => {
+  try {
+    const { amount, date, notes } = req.body;
+    const advanceAmount = Number(amount);
+    if (isNaN(advanceAmount) || advanceAmount <= 0) {
+      return res.status(400).json({ error: 'Advance amount must be a positive number' });
+    }
+    const worker = await LabourWorker.findById(req.params.id);
+    if (!worker) return res.status(404).json({ error: 'Worker not found' });
+    const newAdvance = {
+      id: 'adv_' + Date.now(),
+      amount: advanceAmount,
+      date: date || new Date().toISOString().split('T')[0],
+      notes: notes || ''
+    };
+    if (!Array.isArray(worker.advances)) worker.advances = [];
+    worker.advances.push(newAdvance);
+    worker.advancePayment = (Number(worker.advancePayment) || 0) + advanceAmount;
+    await worker.save();
+    res.json(toJSON(worker));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
 
 createCRUDRoutes(app, '/api/venues', Venue);
 createCRUDRoutes(app, '/api/raw-materials', RawMaterial);
@@ -622,6 +772,9 @@ createCRUDRoutes(app, '/api/provisions', Provision);
 createCRUDRoutes(app, '/api/vegetables', Vegetable);
 createCRUDRoutes(app, '/api/labour-workers', LabourWorker);
 createCRUDRoutes(app, '/api/labour-attendance', LabourAttendance);
+createCRUDRoutes(app, '/api/menu-categories', MenuCategory);
+createCRUDRoutes(app, '/api/vendor-categories', VendorCategory);
+createCRUDRoutes(app, '/api/labour-categories', LabourCategory);
 
 // ─────────────────── MASTER MENU JSON DIRECT MONGO UPLOAD ───────────────────
 app.post('/api/menu/upload-json', async (req, res) => {
@@ -987,7 +1140,10 @@ app.post('/api/seed', async (req, res) => {
       Vessel.deleteMany({}),
       Provision.deleteMany({}),
       Vegetable.deleteMany({}),
-      LabourWorker.deleteMany({})
+      LabourWorker.deleteMany({}),
+      MenuCategory.deleteMany({}),
+      VendorCategory.deleteMany({}),
+      LabourCategory.deleteMany({})
     ]);
 
     // 2. Mock Data Definitions
@@ -1282,6 +1438,64 @@ app.post('/api/seed', async (req, res) => {
       { _id: 'lw_6', name: 'Dinesh Solanki', role: 'Utility Cleaner', phone: '+91 98980 44457', dailyRate: 650, agencyId: 'a2', type: 'Agency', status: 'Active' }
     ];
 
+    const initialMenuCategories = [
+      { _id: 'mc_1', name: 'Breakfast', description: 'Morning breakfast specials and tiffin', displayOrder: 1, active: true },
+      { _id: 'mc_2', name: 'Lunch', description: 'Grand afternoon traditional meals & banquets', displayOrder: 2, active: true },
+      { _id: 'mc_3', name: 'Dinner', description: 'Evening dinner feasts & high reception spreads', displayOrder: 3, active: true },
+      { _id: 'mc_4', name: 'Snacks', description: 'High-tea snacks, savories & chaats', displayOrder: 4, active: true }
+    ];
+
+    const initialVendorCategories = [
+      { _id: 'vc_1', name: 'Plant and Leaf', parentCategory: '', subCategories: ['Banana Leaf', 'Betel Leaf', 'Lotus Leaf'], active: true },
+      { _id: 'vc_2', name: 'Pan', parentCategory: '', subCategories: ['Sweet Paan', 'Fire Paan', 'Traditional Meetha Paan'], active: true },
+      { _id: 'vc_3', name: 'Water Bottle', parentCategory: '', subCategories: ['250ml Bottles', '500ml Bottles', '1 Litre Bottles'], active: true },
+      { _id: 'vc_4', name: 'Water Can', parentCategory: '', subCategories: ['20L Water Cans', 'Cooler Dispensers'], active: true },
+      { _id: 'vc_5', name: 'Coconut', parentCategory: '', subCategories: ['Tender Coconut', 'Regular Coconut'], active: true },
+      { _id: 'vc_6', name: 'Gold Thali', parentCategory: '', subCategories: ['Brass Thali', 'Silver-Plated Thali', 'Gold-Coated Service Plate'], active: true },
+      { _id: 'vc_7', name: 'Thambula', parentCategory: '', subCategories: ['Paper Thambula', 'Cloth Thambula', 'Jute Thambula'], active: true },
+      { _id: 'vc_8', name: 'Pots', parentCategory: '', subCategories: ['Clay Cooking Pots', 'Terracotta Serving Bowls', 'Matka Water Pots'], active: true },
+      { _id: 'vc_9', name: 'Uniform', parentCategory: '', subCategories: ['Chef Coats & Aprons', 'Captain Blazers', 'Service Staff Traditional Uniform'], active: true },
+      { _id: 'vc_10', name: 'Tea and Coffee Counter', parentCategory: '', subCategories: ['Brass Filter Coffee Station', 'Masala Chai Urn', 'Espresso Machine Setup'], active: true },
+      { _id: 'vc_11', name: 'Vessels', parentCategory: '', subCategories: ['Heavy Degchi & Handi', 'Chafing Dishes', 'Serving Trays & Ladles'], active: true },
+      { _id: 'vc_12', name: 'Dairy', parentCategory: '', subCategories: ['Fresh Milk & Curd', 'Paneer & Butter', 'Fresh Cream & Khoya'], active: true },
+      { _id: 'vc_13', name: 'Ice Cream', parentCategory: '', subCategories: ['Artisanal Scoops', 'Kulfi Counter', 'Soft Serve Station'], active: true },
+      { _id: 'vc_14', name: 'Chats', parentCategory: '', subCategories: ['Pani Puri Stall', 'Dahi Puri & Papdi', 'Aloo Tikki Live Counter'], active: true },
+      { _id: 'vc_15', name: 'Fruits', parentCategory: '', subCategories: ['Local Seasonal Fruits', 'Exotic Carved Fruits', 'Cut Fruit Salads'], active: true },
+      { _id: 'vc_16', name: 'Idli', parentCategory: '', subCategories: ['Button Idli Stalls', 'Thatte Idli Station', 'Rava Idli Counter'], active: true },
+      { _id: 'vc_17', name: 'Dosa', parentCategory: '', subCategories: ['Live Dosa Station', 'Benne Masala Dosa', 'Rava & Millet Dosa'], active: true },
+      { _id: 'vc_18', name: 'Mocktails', parentCategory: '', subCategories: ['Live Mocktail Bar', 'Tropical Smoothies', 'Fresh Fruit Juices'], active: true },
+      { _id: 'vc_19', name: 'Printers', parentCategory: '', subCategories: ['Menu Cards', 'Signboards & Labels', 'Event Token Passes'], active: true },
+      { _id: 'vc_20', name: 'Plastic Items', parentCategory: '', subCategories: ['Biodegradable Spoons', 'Buffet Rolls', 'Garbage Bags'], active: true },
+      { _id: 'vc_21', name: 'Cylinders', parentCategory: '', subCategories: ['19kg Commercial LPG', '47.5kg Industrial Cylinder'], active: true },
+      { _id: 'vc_22', name: 'Sweets', parentCategory: '', subCategories: ['Traditional South Indian Ghee Sweets', 'Bengali Milk Sweets', 'Dry Fruit Delicacies'], active: true },
+      { _id: 'vc_23', name: 'Peni', parentCategory: '', subCategories: ['Chiroti Peni', 'Badam Milk Peni', 'Saffron Peni'], active: true },
+      { _id: 'vc_24', name: 'Kunafa', parentCategory: '', subCategories: ['Classic Cheese Kunafa', 'Nutella Kunafa', 'Creamy Lotus Kunafa'], active: true },
+      { _id: 'vc_25', name: 'Charcoal', parentCategory: '', subCategories: ['Hardwood Tandoor Charcoal', 'Briquette Charcoal'], active: true },
+      { _id: 'vc_26', name: 'Ghee', parentCategory: '', subCategories: ['Pure Cow Desi Ghee', 'A2 Vedic Bilona Ghee', 'Buffalo Ghee'], active: true },
+      { _id: 'vc_27', name: 'Photographers', parentCategory: '', subCategories: ['Candid Event Photography', 'Traditional Photo Studio', 'Drone Videography'], active: true },
+      { _id: 'vc_28', name: 'Videographers', parentCategory: '', subCategories: ['Cinematic Film Team', 'Live Streaming Setup', 'LED Wall Feed'], active: true },
+      { _id: 'vc_29', name: 'Cake', parentCategory: '', subCategories: ['Multi-tier Wedding Cake', 'Designer Theme Cakes', 'Cupcakes & Pastries'], active: true },
+      { _id: 'vc_30', name: 'Grocery', parentCategory: '', subCategories: ['Rice & Grains', 'Pulses & Lentils', 'Oils & Condiments'], active: true },
+      { _id: 'vc_31', name: 'Spices', parentCategory: '', subCategories: ['Whole Spices', 'Ground Blends', 'Saffron & Cardamom'], active: true },
+      { _id: 'vc_32', name: 'Vegetables', parentCategory: '', subCategories: ['Country Vegetables', 'English Exotic Vegetables', 'Greens & Herbs'], active: true },
+      { _id: 'vc_33', name: 'Transport & Logistics', parentCategory: '', subCategories: ['Tempo / Chhota Hathi', '14ft Logistics Truck', 'Refrigerated Van'], active: true },
+      { _id: 'vc_34', name: 'Cleaning & Housekeeping', parentCategory: '', subCategories: ['Dishwashing Chemicals', 'Floor Sanitisers', 'Handwash Consumables'], active: true }
+    ];
+
+    const initialLabourCategories = [
+      { _id: 'lc_1', name: 'Head Cook', active: true },
+      { _id: 'lc_2', name: 'Assistant Cook', active: true },
+      { _id: 'lc_3', name: 'Sweet Master', active: true },
+      { _id: 'lc_4', name: 'Sweet Assistant', active: true },
+      { _id: 'lc_5', name: 'Management', active: true },
+      { _id: 'lc_6', name: 'Grinders', active: true },
+      { _id: 'lc_7', name: 'Cutting and Supply', active: true },
+      { _id: 'lc_8', name: 'Loaders', active: true },
+      { _id: 'lc_9', name: 'Cleaners', active: true },
+      { _id: 'lc_10', name: 'Ladies Supply', active: true },
+      { _id: 'lc_11', name: 'Coffee Duty', active: true }
+    ];
+
     // 3. Create items in Atlas
     await Promise.all([
       Venue.create(initialVenues),
@@ -1296,7 +1510,10 @@ app.post('/api/seed', async (req, res) => {
       Vessel.create(initialVessels),
       Provision.create(initialProvisions),
       Vegetable.create(initialVegetables),
-      LabourWorker.create(initialLabourWorkers)
+      LabourWorker.create(initialLabourWorkers),
+      MenuCategory.create(initialMenuCategories),
+      VendorCategory.create(initialVendorCategories),
+      LabourCategory.create(initialLabourCategories)
     ]);
 
     res.json({ success: true, message: 'Seeded Cloud Database successfully for Sri Mayyia Caterers' });
