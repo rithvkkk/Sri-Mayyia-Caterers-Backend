@@ -151,6 +151,8 @@ async function connectDB() {
   }
   try {
     cached.conn = await cached.promise;
+    // Safe auto-migration for renamed categories
+    Dish.updateMany({ category: 'Other Welcome Drinks' }, { $set: { category: 'SHELL BASED FRESH JUICE' } }).catch(() => {});
   } catch (e) {
     cached.promise = null;
     throw e;
@@ -229,6 +231,7 @@ const dishSchema = new mongoose.Schema({
   name: { type: String, required: true },
   category: { type: String, required: true },
   subCategory: { type: String },
+  cuisine: { type: String },
   dietary: [{ type: String }],
   price: { type: Number, required: true },
   recipe: [recipeItemSchema]
@@ -1610,8 +1613,9 @@ app.post('/api/seed', async (req, res) => {
       ? masterMenuData.map(item => ({
           _id: item._id || item.id,
           name: item.name,
-          category: item.category,
+          category: item.category === 'Other Welcome Drinks' ? 'SHELL BASED FRESH JUICE' : item.category,
           subCategory: item.subCategory,
+          cuisine: item.cuisine || item.subCategory || '',
           dietary: item.dietary || ['Vegetarian'],
           price: item.price || 100,
           recipe: item.recipe || []
@@ -1621,8 +1625,9 @@ app.post('/api/seed', async (req, res) => {
             (sub.items || []).map(item => ({
               _id: item._id || item.id,
               name: item.name,
-              category: item.category || cat.name,
+              category: (item.category || cat.name) === 'Other Welcome Drinks' ? 'SHELL BASED FRESH JUICE' : (item.category || cat.name),
               subCategory: item.subCategory || sub.name,
+              cuisine: item.cuisine || item.subCategory || sub.name || '',
               dietary: item.dietary || ['Vegetarian'],
               price: item.price || 100,
               recipe: item.recipe || []
