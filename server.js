@@ -681,15 +681,23 @@ const handleEventCreation = async (req, res) => {
     if (targetId) {
       const existing = await Event.findById(targetId);
       if (existing) {
-        // If an event exists with this exact ID, calculate the next safe sequential ID
-        const allYearEvents = await Event.find({ _id: new RegExp(`^EV-${year}-`) }, '_id');
-        let maxNum = 0;
-        allYearEvents.forEach(e => {
-          const parts = e._id.split('-');
-          const n = parseInt(parts[2], 10);
-          if (!isNaN(n) && n > maxNum) maxNum = n;
-        });
-        targetId = `EV-${year}-${String(maxNum + 1).padStart(3, '0')}`;
+        if (!req.query.forceNew && !payload._forceNew) {
+          // Idempotent upsert: update existing event with this ID, do NOT generate a duplicate copy!
+          payload._id = targetId;
+          payload.id = targetId;
+        } else {
+          // Explicit request to clone/force a new sequential ID
+          const allYearEvents = await Event.find({ _id: new RegExp(`^EV-${year}-`) }, '_id');
+          let maxNum = 0;
+          allYearEvents.forEach(e => {
+            const parts = e._id.split('-');
+            const n = parseInt(parts[2], 10);
+            if (!isNaN(n) && n > maxNum) maxNum = n;
+          });
+          targetId = `EV-${year}-${String(maxNum + 1).padStart(3, '0')}`;
+          payload._id = targetId;
+          payload.id = targetId;
+        }
       }
     } else {
       const allYearEvents = await Event.find({ _id: new RegExp(`^EV-${year}-`) }, '_id');
@@ -700,6 +708,8 @@ const handleEventCreation = async (req, res) => {
         if (!isNaN(n) && n > maxNum) maxNum = n;
       });
       targetId = `EV-${year}-${String(maxNum + 1).padStart(3, '0')}`;
+      payload._id = targetId;
+      payload.id = targetId;
     }
 
     payload._id = targetId;
@@ -838,6 +848,47 @@ app.post('/api/events', handleEventCreation);
 app.post('/events', handleEventCreation);
 app.put('/api/events/:id', handleEventUpdate);
 app.put('/events/:id', handleEventUpdate);
+
+const handleEventDelete = async (req, res) => {
+  try {
+    const id = req.params.id;
+    if (!id) return res.status(400).json({ error: 'Event ID is required' });
+    const deleted = await Event.findOneAndDelete({
+      $or: [{ _id: id }, { id: id }]
+    });
+    return res.json({ success: true, message: 'Event deleted successfully', id });
+  } catch (err) {
+    console.error('Error deleting event:', err);
+    return res.status(500).json({ error: err.message });
+  }
+};
+
+app.delete('/api/events/:id', handleEventDelete);
+app.delete('/events/:id', handleEventDelete);
+
+// Deduplicate existing events endpoint
+app.post(['/api/events/deduplicate', '/events/deduplicate'], async (req, res) => {
+  try {
+    const all = await Event.find().sort({ createdAt: 1 });
+    const seen = new Map();
+    const toDelete = [];
+    all.forEach(doc => {
+      const key = `${(doc.customer?.name || '').trim().toLowerCase()}|${(doc.customer?.phone || '').trim()}|${(doc.date || '').trim()}|${(doc.eventType || '').trim().toLowerCase()}`;
+      if (!key || key === '|||') return;
+      if (seen.has(key)) {
+        toDelete.push(doc._id);
+      } else {
+        seen.set(key, doc._id);
+      }
+    });
+    if (toDelete.length > 0) {
+      await Event.deleteMany({ _id: { $in: toDelete } });
+    }
+    res.json({ success: true, removedCount: toDelete.length, removedIds: toDelete });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Raw Material Supplier Pricing management routes
 app.post(['/api/raw-materials/:id/suppliers', '/raw-materials/:id/suppliers'], async (req, res) => {
