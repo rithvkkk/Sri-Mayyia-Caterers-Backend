@@ -3,6 +3,7 @@ const cors = require('cors');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const { S3Client, PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
+const cloudinary = require('cloudinary').v2;
 global.crypto = require('crypto');
 require('dotenv').config();
 
@@ -153,6 +154,7 @@ async function connectDB() {
     cached.conn = await cached.promise;
     // Safe auto-migration for renamed categories
     Dish.updateMany({ category: 'Other Welcome Drinks' }, { $set: { category: 'SHELL BASED FRESH JUICE' } }).catch(() => {});
+    RawMaterial.updateMany({ suppliers: { $exists: false } }, { $set: { suppliers: [] } }).catch(() => {});
   } catch (e) {
     cached.promise = null;
     throw e;
@@ -211,13 +213,24 @@ const venueSchema = new mongoose.Schema({
 const Venue = mongoose.model('Venue', venueSchema);
 
 // 2. Raw Material
+const supplierPricingSchema = new mongoose.Schema({
+  supplierId: { type: String, required: true },
+  supplierName: { type: String, default: '' },
+  price: { type: Number, required: true },
+  unit: { type: String, default: '' },
+  notes: { type: String, default: '' },
+  isDefault: { type: Boolean, default: false }
+}, { _id: false });
+
 const rawMaterialSchema = new mongoose.Schema({
   _id: { type: String, required: true },
   name: { type: String, required: true },
   category: { type: String, required: true }, // Grocery, Dairy, Veg/Fruit, Fuel
   unit: { type: String, required: true },
-  costPerUnit: { type: Number, required: true }
-});
+  costPerUnit: { type: Number, required: true },
+  photo: { type: String, default: '' },
+  suppliers: [supplierPricingSchema]
+}, { timestamps: true });
 const RawMaterial = mongoose.model('RawMaterial', rawMaterialSchema);
 
 // 3. Dish
@@ -234,7 +247,8 @@ const dishSchema = new mongoose.Schema({
   cuisine: { type: String },
   dietary: [{ type: String }],
   price: { type: Number, required: true },
-  recipe: [recipeItemSchema]
+  recipe: [recipeItemSchema],
+  instructions: { type: String, default: '' }
 }, { timestamps: true });
 const Dish = mongoose.model('Dish', dishSchema);
 
@@ -555,6 +569,8 @@ const eventSchema = new mongoose.Schema({
   billing: {
     pricePerPlate: { type: Number, default: 800 },
     subtotal: { type: Number, default: 0 },
+    commissionRate: { type: Number, default: 0 },
+    commissionAmount: { type: Number, default: 0 },
     taxRate: { type: Number, default: 5 },
     taxType: { type: String, default: 'GST' }, // 'GST' | 'NON_GST'
     isInterState: { type: Boolean, default: false },
@@ -581,50 +597,77 @@ const toJSON = (doc) => {
 
 // Generic CRUD factory
 const createCRUDRoutes = (app, routePath, Model) => {
-  // GET all
-  app.get(routePath, async (req, res) => {
-    try {
-      const items = await Model.find();
-      res.json(items.map(toJSON));
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
+  const paths = [routePath];
+  if (routePath.startsWith('/api/')) {
+    paths.push(routePath.replace('/api', ''));
+  }
 
-  // POST create
-  app.post(routePath, async (req, res) => {
-    try {
-      const payload = { ...req.body };
-      if (payload.id && !payload._id) {
-        payload._id = payload.id;
+  paths.forEach(p => {
+    // GET all
+    app.get(p, async (req, res) => {
+      try {
+        const items = await Model.find();
+        res.json(items.map(toJSON));
+      } catch (err) {
+        res.status(500).json({ error: err.message });
       }
-      const item = await Model.create(payload);
-      res.status(201).json(toJSON(item));
-    } catch (err) {
-      res.status(400).json({ error: err.message });
-    }
-  });
+    });
 
-  // PUT update
-  app.put(`${routePath}/:id`, async (req, res) => {
-    try {
-      const updated = await Model.findByIdAndUpdate(req.params.id, req.body, { new: true });
-      if (!updated) return res.status(404).json({ error: 'Item not found' });
-      res.json(toJSON(updated));
-    } catch (err) {
-      res.status(400).json({ error: err.message });
-    }
-  });
+    // POST create
+    app.post(p, async (req, res) => {
+      try {
+        const payload = { ...req.body };
+        if (payload.id && !payload._id) {
+          payload._id = payload.id;
+        }
+        // Non-negative validation for financial/inventory quantities
+        if (payload.costPerUnit !== undefined && Number(payload.costPerUnit) < 0) {
+          return res.status(400).json({ error: 'Cost per unit cannot be negative' });
+        }
+        if (payload.price !== undefined && Number(payload.price) < 0) {
+          return res.status(400).json({ error: 'Price cannot be negative' });
+        }
+        if (payload.stockQty !== undefined && Number(payload.stockQty) < 0) {
+          return res.status(400).json({ error: 'Stock quantity cannot be negative' });
+        }
+        const item = await Model.create(payload);
+        res.status(201).json(toJSON(item));
+      } catch (err) {
+        res.status(400).json({ error: err.message });
+      }
+    });
 
-  // DELETE
-  app.delete(`${routePath}/:id`, async (req, res) => {
-    try {
-      const deleted = await Model.findByIdAndDelete(req.params.id);
-      if (!deleted) return res.status(404).json({ error: 'Item not found' });
-      res.json({ success: true, message: 'Deleted successfully' });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
+    // PUT update
+    app.put(`${p}/:id`, async (req, res) => {
+      try {
+        const payload = { ...req.body };
+        if (payload.costPerUnit !== undefined && Number(payload.costPerUnit) < 0) {
+          return res.status(400).json({ error: 'Cost per unit cannot be negative' });
+        }
+        if (payload.price !== undefined && Number(payload.price) < 0) {
+          return res.status(400).json({ error: 'Price cannot be negative' });
+        }
+        if (payload.stockQty !== undefined && Number(payload.stockQty) < 0) {
+          return res.status(400).json({ error: 'Stock quantity cannot be negative' });
+        }
+        const updated = await Model.findByIdAndUpdate(req.params.id, payload, { new: true });
+        if (!updated) return res.status(404).json({ error: 'Item not found' });
+        res.json(toJSON(updated));
+      } catch (err) {
+        res.status(400).json({ error: err.message });
+      }
+    });
+
+    // DELETE
+    app.delete(`${p}/:id`, async (req, res) => {
+      try {
+        const deleted = await Model.findByIdAndDelete(req.params.id);
+        if (!deleted) return res.status(404).json({ error: 'Item not found' });
+        res.json({ success: true, message: 'Deleted successfully' });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
   });
 };
 
@@ -695,6 +738,34 @@ const handleEventCreation = async (req, res) => {
     if (!payload.createdByName) payload.createdByName = 'Admin';
     if (!payload.salesExecutive) payload.salesExecutive = payload.createdBy || 'admin';
 
+    // Automatic Commission & Financial Calculation
+    if (payload.billing) {
+      let totalPax = 0;
+      if (Array.isArray(payload.subFunctions) && payload.subFunctions.length > 0) {
+        totalPax = payload.subFunctions.reduce((sum, sf) => sum + (Number(sf.guestCount) || 0), 0);
+      } else if (payload.guestCount) {
+        totalPax = Number(payload.guestCount) || 0;
+      }
+      const pricePerPlate = Number(payload.billing.pricePerPlate) || 800;
+      const calculatedSubtotal = totalPax > 0 ? (totalPax * pricePerPlate) : (Number(payload.billing.subtotal) || 0);
+      payload.billing.subtotal = calculatedSubtotal;
+
+      const commRate = Math.max(0, Number(payload.billing.commissionRate) || 0);
+      payload.billing.commissionRate = commRate;
+      // Formula: Commission Amount = Base Amount * Commission % / 100
+      payload.billing.commissionAmount = Math.round((calculatedSubtotal * commRate / 100) * 100) / 100;
+
+      const isGst = payload.billing.taxType !== 'NON_GST';
+      const taxRate = isGst ? (Number(payload.billing.taxRate) || 5) : 0;
+      const taxAmount = Math.round((calculatedSubtotal * taxRate / 100) * 100) / 100;
+      payload.billing.taxAmount = taxAmount;
+      payload.billing.totalAmount = Math.round((calculatedSubtotal + taxAmount) * 100) / 100;
+
+      const advance = Math.max(0, Number(payload.billing.advancePaid) || 0);
+      payload.billing.advancePaid = advance;
+      payload.billing.balanceDue = Math.round((payload.billing.totalAmount - advance) * 100) / 100;
+    }
+
     const item = await Event.findByIdAndUpdate(targetId, payload, { upsert: true, new: true, setDefaultsOnInsert: true });
     res.status(201).json(toJSON(item));
   } catch (err) {
@@ -726,6 +797,35 @@ const handleEventUpdate = async (req, res) => {
         }
       }
     }
+
+    // Automatic Commission & Financial Calculation
+    if (payload.billing) {
+      let totalPax = 0;
+      if (Array.isArray(payload.subFunctions) && payload.subFunctions.length > 0) {
+        totalPax = payload.subFunctions.reduce((sum, sf) => sum + (Number(sf.guestCount) || 0), 0);
+      } else if (payload.guestCount) {
+        totalPax = Number(payload.guestCount) || 0;
+      }
+      const pricePerPlate = Number(payload.billing.pricePerPlate) || 800;
+      const calculatedSubtotal = totalPax > 0 ? (totalPax * pricePerPlate) : (Number(payload.billing.subtotal) || 0);
+      payload.billing.subtotal = calculatedSubtotal;
+
+      const commRate = Math.max(0, Number(payload.billing.commissionRate) || 0);
+      payload.billing.commissionRate = commRate;
+      // Formula: Commission Amount = Base Amount * Commission % / 100
+      payload.billing.commissionAmount = Math.round((calculatedSubtotal * commRate / 100) * 100) / 100;
+
+      const isGst = payload.billing.taxType !== 'NON_GST';
+      const taxRate = isGst ? (Number(payload.billing.taxRate) || 5) : 0;
+      const taxAmount = Math.round((calculatedSubtotal * taxRate / 100) * 100) / 100;
+      payload.billing.taxAmount = taxAmount;
+      payload.billing.totalAmount = Math.round((calculatedSubtotal + taxAmount) * 100) / 100;
+
+      const advance = Math.max(0, Number(payload.billing.advancePaid) || 0);
+      payload.billing.advancePaid = advance;
+      payload.billing.balanceDue = Math.round((payload.billing.totalAmount - advance) * 100) / 100;
+    }
+
     const updated = await Event.findByIdAndUpdate(req.params.id, payload, { new: true });
     if (!updated) return res.status(404).json({ error: 'Item not found' });
     res.json(toJSON(updated));
@@ -738,6 +838,61 @@ app.post('/api/events', handleEventCreation);
 app.post('/events', handleEventCreation);
 app.put('/api/events/:id', handleEventUpdate);
 app.put('/events/:id', handleEventUpdate);
+
+// Raw Material Supplier Pricing management routes
+app.post(['/api/raw-materials/:id/suppliers', '/raw-materials/:id/suppliers'], async (req, res) => {
+  try {
+    const { supplierId, supplierName, price, unit, notes, isDefault } = req.body;
+    if (!supplierId || price === undefined) {
+      return res.status(400).json({ error: 'supplierId and price are required' });
+    }
+    const numPrice = Number(price);
+    if (isNaN(numPrice) || numPrice < 0) {
+      return res.status(400).json({ error: 'Price must be a non-negative number' });
+    }
+
+    const material = await RawMaterial.findById(req.params.id);
+    if (!material) return res.status(404).json({ error: 'Raw material not found' });
+
+    if (!Array.isArray(material.suppliers)) material.suppliers = [];
+
+    const existingIdx = material.suppliers.findIndex(s => s.supplierId === supplierId);
+    const entry = {
+      supplierId,
+      supplierName: supplierName || '',
+      price: numPrice,
+      unit: unit || material.unit || 'kg',
+      notes: notes || '',
+      isDefault: Boolean(isDefault)
+    };
+
+    if (existingIdx >= 0) {
+      material.suppliers[existingIdx] = entry;
+    } else {
+      material.suppliers.push(entry);
+    }
+
+    await material.save();
+    res.json(toJSON(material));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete(['/api/raw-materials/:id/suppliers/:supplierId', '/raw-materials/:id/suppliers/:supplierId'], async (req, res) => {
+  try {
+    const material = await RawMaterial.findById(req.params.id);
+    if (!material) return res.status(404).json({ error: 'Raw material not found' });
+
+    if (Array.isArray(material.suppliers)) {
+      material.suppliers = material.suppliers.filter(s => s.supplierId !== req.params.supplierId);
+      await material.save();
+    }
+    res.json(toJSON(material));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
 
 // Labour worker advance payment route
 app.post(['/api/labour-workers/:id/advance', '/labour-workers/:id/advance'], async (req, res) => {
@@ -765,6 +920,16 @@ app.post(['/api/labour-workers/:id/advance', '/labour-workers/:id/advance'], asy
   }
 });
 
+// Dishes GET endpoint with MongoDB A-Z name sorting
+app.get(['/api/dishes', '/dishes'], async (req, res) => {
+  try {
+    const items = await Dish.find().sort({ name: 1 });
+    res.json(items.map(toJSON));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 createCRUDRoutes(app, '/api/venues', Venue);
 createCRUDRoutes(app, '/api/raw-materials', RawMaterial);
 createCRUDRoutes(app, '/api/dishes', Dish);
@@ -781,7 +946,39 @@ createCRUDRoutes(app, '/api/menu-categories', MenuCategory);
 createCRUDRoutes(app, '/api/vendor-categories', VendorCategory);
 createCRUDRoutes(app, '/api/labour-categories', LabourCategory);
 
-// ─────────────────── AWS S3 CLOUD STORAGE UPLOAD ───────────────────
+// ─────────────────── CLOUD STORAGE UPLOAD (Cloudinary & AWS S3) ───────────────────
+const getCloudinaryClient = () => {
+  const cloudinaryUrl = process.env.CLOUDINARY_URL;
+  if (cloudinaryUrl) {
+    const match = cloudinaryUrl.match(/^cloudinary:\/\/([^:]+):([^@]+)@(.+)$/);
+    if (match) {
+      cloudinary.config({
+        api_key: match[1],
+        api_secret: match[2],
+        cloud_name: match[3],
+        secure: true
+      });
+      return cloudinary;
+    }
+  }
+
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+  const apiKey = process.env.CLOUDINARY_API_KEY;
+  const apiSecret = process.env.CLOUDINARY_API_SECRET;
+
+  if (cloudName && apiKey && apiSecret) {
+    cloudinary.config({
+      cloud_name: cloudName,
+      api_key: apiKey,
+      api_secret: apiSecret,
+      secure: true
+    });
+    return cloudinary;
+  }
+
+  return null;
+};
+
 const getS3Client = () => {
   const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
   const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
@@ -805,137 +1002,181 @@ const getS3Client = () => {
   };
 };
 
-// Check S3 Configuration Status
+// Check Storage Configuration Status
 app.get('/api/upload/status', (req, res) => {
+  const cloudinaryClient = getCloudinaryClient();
+  if (cloudinaryClient) {
+    return res.json({
+      provider: 'Cloudinary',
+      configured: true,
+      cloudName: process.env.CLOUDINARY_CLOUD_NAME || 'configured'
+    });
+  }
+
   const s3Config = getS3Client();
   res.json({
-    provider: 'AWS S3',
+    provider: s3Config ? 'AWS S3' : 'None',
     configured: Boolean(s3Config),
     bucket: s3Config ? s3Config.bucketName : null,
     region: s3Config ? s3Config.region : (process.env.AWS_REGION || 'ap-south-1')
   });
 });
 
-// Upload Image to AWS S3
+// Upload Image to Cloudinary or AWS S3
 app.post('/api/upload/image', async (req, res) => {
   try {
-    const s3Config = getS3Client();
-    if (!s3Config) {
-      return res.status(503).json({
-        success: false,
-        error: 'AWS S3 Cloud Storage is not configured. Please set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_S3_BUCKET_NAME in backend/.env',
-        configured: false
-      });
-    }
-
-    const { image, name = 'image.jpg', folder = 'vessels' } = req.body;
+    const { image, name = 'image.jpg', folder = 'items' } = req.body;
     if (!image || typeof image !== 'string') {
       return res.status(400).json({ success: false, error: 'No image data provided. Expected base64 data URL string.' });
     }
 
-    // Parse Data URL format: "data:image/jpeg;base64,..."
-    const match = image.match(/^data:([^;]+);base64,(.+)$/);
-    let mimeType = 'image/jpeg';
-    let base64Data = image;
+    const safeFolder = folder.replace(/[^a-zA-Z0-9_\-]/g, '') || 'items';
 
-    if (match) {
-      mimeType = match[1].toLowerCase();
-      base64Data = match[2];
+    // 1. Try Cloudinary first
+    const cloudinaryClient = getCloudinaryClient();
+    if (cloudinaryClient) {
+      const uploadRes = await cloudinaryClient.uploader.upload(image, {
+        folder: `caterflow/${safeFolder}`,
+        resource_type: 'image'
+      });
+      return res.json({
+        success: true,
+        url: uploadRes.secure_url,
+        key: uploadRes.public_id,
+        provider: 'Cloudinary',
+        sizeBytes: uploadRes.bytes
+      });
     }
 
-    const allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
-    if (!allowedMimes.includes(mimeType)) {
-      return res.status(400).json({ success: false, error: 'Invalid file type. Only JPG, PNG, and WEBP images are supported.' });
+    // 2. Fallback to AWS S3 if configured
+    const s3Config = getS3Client();
+    if (s3Config) {
+      const match = image.match(/^data:([^;]+);base64,(.+)$/);
+      let mimeType = 'image/jpeg';
+      let base64Data = image;
+
+      if (match) {
+        mimeType = match[1].toLowerCase();
+        base64Data = match[2];
+      }
+
+      const allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
+      if (!allowedMimes.includes(mimeType)) {
+        return res.status(400).json({ success: false, error: 'Invalid file type. Only JPG, PNG, and WEBP images are supported.' });
+      }
+
+      const buffer = Buffer.from(base64Data, 'base64');
+      if (buffer.length === 0) {
+        return res.status(400).json({ success: false, error: 'Decoded image data is empty.' });
+      }
+
+      // 5MB safety limit
+      const MAX_BUFFER_SIZE_BYTES = 5 * 1024 * 1024;
+      if (buffer.length > MAX_BUFFER_SIZE_BYTES) {
+        return res.status(400).json({ success: false, error: 'Image exceeds maximum 5MB size limit.' });
+      }
+
+      let ext = 'jpg';
+      if (mimeType.includes('png')) ext = 'png';
+      else if (mimeType.includes('webp')) ext = 'webp';
+
+      const timestamp = Date.now();
+      const cryptoRand = crypto.randomBytes(4).toString('hex');
+      const s3Key = `${safeFolder}/${safeFolder}_${timestamp}_${cryptoRand}.${ext}`;
+
+      const { client, bucketName, region } = s3Config;
+
+      const uploadCommand = new PutObjectCommand({
+        Bucket: bucketName,
+        Key: s3Key,
+        Body: buffer,
+        ContentType: mimeType,
+        CacheControl: 'max-age=31536000'
+      });
+
+      await client.send(uploadCommand);
+
+      const cdnBase = process.env.AWS_CLOUDFRONT_URL
+        ? process.env.AWS_CLOUDFRONT_URL.replace(/\/$/, '')
+        : `https://${bucketName}.s3.${region}.amazonaws.com`;
+
+      const publicUrl = `${cdnBase}/${s3Key}`;
+
+      return res.json({
+        success: true,
+        url: publicUrl,
+        key: s3Key,
+        bucket: bucketName,
+        region,
+        sizeBytes: buffer.length,
+        provider: 'AWS S3'
+      });
     }
 
-    const buffer = Buffer.from(base64Data, 'base64');
-    if (buffer.length === 0) {
-      return res.status(400).json({ success: false, error: 'Decoded image data is empty.' });
-    }
-
-    // 5MB safety limit
-    const MAX_BUFFER_SIZE_BYTES = 5 * 1024 * 1024;
-    if (buffer.length > MAX_BUFFER_SIZE_BYTES) {
-      return res.status(400).json({ success: false, error: 'Image exceeds maximum 5MB size limit.' });
-    }
-
-    // Extension determination
-    let ext = 'jpg';
-    if (mimeType.includes('png')) ext = 'png';
-    else if (mimeType.includes('webp')) ext = 'webp';
-
-    const safeFolder = folder.replace(/[^a-zA-Z0-9_\-]/g, '') || 'vessels';
-    const timestamp = Date.now();
-    const cryptoRand = crypto.randomBytes(4).toString('hex');
-    const s3Key = `${safeFolder}/${safeFolder}_${timestamp}_${cryptoRand}.${ext}`;
-
-    const { client, bucketName, region } = s3Config;
-
-    const uploadCommand = new PutObjectCommand({
-      Bucket: bucketName,
-      Key: s3Key,
-      Body: buffer,
-      ContentType: mimeType,
-      CacheControl: 'max-age=31536000'
-    });
-
-    await client.send(uploadCommand);
-
-    const cdnBase = process.env.AWS_CLOUDFRONT_URL
-      ? process.env.AWS_CLOUDFRONT_URL.replace(/\/$/, '')
-      : `https://${bucketName}.s3.${region}.amazonaws.com`;
-
-    const publicUrl = `${cdnBase}/${s3Key}`;
-
-    return res.json({
-      success: true,
-      url: publicUrl,
-      key: s3Key,
-      bucket: bucketName,
-      region,
-      sizeBytes: buffer.length
+    return res.status(503).json({
+      success: false,
+      error: 'Cloud storage is not configured. Please set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET in backend/.env',
+      configured: false
     });
   } catch (err) {
-    console.error('AWS S3 Upload Error:', err);
-    return res.status(500).json({ success: false, error: `S3 upload failed: ${err.message}` });
+    console.error('Cloud Upload Error:', err);
+    return res.status(500).json({ success: false, error: `Upload failed: ${err.message}` });
   }
 });
 
-// Delete Image from AWS S3
+// Delete Image from Cloudinary or AWS S3
 app.delete('/api/upload/image', async (req, res) => {
   try {
-    const s3Config = getS3Client();
-    if (!s3Config) {
-      return res.status(503).json({ success: false, error: 'AWS S3 is not configured.' });
-    }
-
     const { key, url } = req.body;
     let targetKey = key;
 
-    if (!targetKey && url && typeof url === 'string') {
-      try {
-        const urlObj = new URL(url);
-        targetKey = urlObj.pathname.replace(/^\//, '');
-      } catch (e) {
-        targetKey = null;
+    const cloudinaryClient = getCloudinaryClient();
+    if (cloudinaryClient) {
+      if (!targetKey && url && typeof url === 'string') {
+        const parts = url.split('/');
+        const uploadIndex = parts.indexOf('upload');
+        if (uploadIndex !== -1) {
+          const pathAfterUpload = parts.slice(uploadIndex + 2).join('/'); // skip version 'v12345'
+          targetKey = pathAfterUpload.substring(0, pathAfterUpload.lastIndexOf('.')) || pathAfterUpload;
+        }
+      }
+      if (targetKey) {
+        await cloudinaryClient.uploader.destroy(targetKey);
+        return res.json({ success: true, message: 'Image deleted from Cloudinary successfully', key: targetKey });
+      }
+    }
+
+    const s3Config = getS3Client();
+    if (s3Config) {
+      if (!targetKey && url && typeof url === 'string') {
+        try {
+          const urlObj = new URL(url);
+          targetKey = urlObj.pathname.replace(/^\//, '');
+        } catch (e) {
+          targetKey = null;
+        }
+      }
+
+      if (targetKey) {
+        const { client, bucketName } = s3Config;
+        const deleteCommand = new DeleteObjectCommand({
+          Bucket: bucketName,
+          Key: targetKey
+        });
+
+        await client.send(deleteCommand);
+        return res.json({ success: true, message: 'Image deleted from S3 successfully', key: targetKey });
       }
     }
 
     if (!targetKey) {
-      return res.status(400).json({ success: false, error: 'No S3 key or URL provided for deletion.' });
+      return res.status(400).json({ success: false, error: 'No key or URL provided for deletion.' });
     }
 
-    const { client, bucketName } = s3Config;
-    const deleteCommand = new DeleteObjectCommand({
-      Bucket: bucketName,
-      Key: targetKey
-    });
-
-    await client.send(deleteCommand);
-    return res.json({ success: true, message: 'Image deleted from S3 successfully', key: targetKey });
+    return res.status(503).json({ success: false, error: 'Storage provider is not configured.' });
   } catch (err) {
-    console.error('AWS S3 Delete Error:', err);
-    return res.status(500).json({ success: false, error: `S3 delete failed: ${err.message}` });
+    console.error('Cloud Delete Error:', err);
+    return res.status(500).json({ success: false, error: `Delete failed: ${err.message}` });
   }
 });
 
@@ -1579,27 +1820,69 @@ app.post('/api/seed', async (req, res) => {
     ];
 
     const initialRawMaterials = [
-      { _id: 'rm1', name: 'Basmati Rice', category: 'Grocery', unit: 'kg', costPerUnit: 90 },
-      { _id: 'rm2', name: 'Wheat Flour (Atta)', category: 'Grocery', unit: 'kg', costPerUnit: 45 },
-      { _id: 'rm3', name: 'Sugar', category: 'Grocery', unit: 'kg', costPerUnit: 40 },
-      { _id: 'rm4', name: 'Spices Mix', category: 'Grocery', unit: 'kg', costPerUnit: 350 },
-      { _id: 'rm5', name: 'Cooking Oil', category: 'Grocery', unit: 'ltr', costPerUnit: 140 },
-      { _id: 'rm6', name: 'Lentils (Dal)', category: 'Grocery', unit: 'kg', costPerUnit: 120 },
-      { _id: 'rm7', name: 'Tea Leaves', category: 'Grocery', unit: 'kg', costPerUnit: 280 },
-      { _id: 'rm8', name: 'Chinese Sauces', category: 'Grocery', unit: 'ltr', costPerUnit: 95 },
-      { _id: 'rm9', name: 'Fresh Paneer', category: 'Dairy', unit: 'kg', costPerUnit: 380 },
-      { _id: 'rm10', name: 'Amul Butter', category: 'Dairy', unit: 'kg', costPerUnit: 520 },
-      { _id: 'rm11', name: 'Fresh Cream', category: 'Dairy', unit: 'ltr', costPerUnit: 220 },
-      { _id: 'rm12', name: 'Full Cream Milk', category: 'Dairy', unit: 'ltr', costPerUnit: 66 },
-      { _id: 'rm13', name: 'Khoya (Mawa)', category: 'Dairy', unit: 'kg', costPerUnit: 320 },
-      { _id: 'rm14', name: 'Desi Ghee', category: 'Dairy', unit: 'kg', costPerUnit: 650 },
-      { _id: 'rm15', name: 'Mixed Vegetables', category: 'Veg/Fruit', unit: 'kg', costPerUnit: 50 },
-      { _id: 'rm16', name: 'Onions & Potatoes', category: 'Veg/Fruit', unit: 'kg', costPerUnit: 35 },
-      { _id: 'rm17', name: 'Capsicum & Tomato', category: 'Veg/Fruit', unit: 'kg', costPerUnit: 60 },
-      { _id: 'rm18', name: 'Mint & Lemon', category: 'Veg/Fruit', unit: 'kg', costPerUnit: 80 },
-      { _id: 'rm19', name: 'Assorted Fresh Fruits', category: 'Veg/Fruit', unit: 'kg', costPerUnit: 120 },
-      { _id: 'rm20', name: 'LPG Commercial Cylinder', category: 'Fuel', unit: 'cylinder', costPerUnit: 1850 },
-      { _id: 'rm21', name: 'Charcoal / Wood', category: 'Fuel', unit: 'bag', costPerUnit: 450 }
+      { _id: 'rm1', name: 'Basmati Rice', category: 'Grocery', unit: 'kg', costPerUnit: 90, suppliers: [
+        { supplierId: 's1', supplierName: 'Krishna Grocery Wholesalers', price: 90, unit: 'kg', notes: 'Grade-A Royal Daawat' }
+      ]},
+      { _id: 'rm2', name: 'Wheat Flour (Atta)', category: 'Grocery', unit: 'kg', costPerUnit: 45, suppliers: [
+        { supplierId: 's1', supplierName: 'Krishna Grocery Wholesalers', price: 45, unit: 'kg', notes: 'Chakki Fresh Whole Wheat' }
+      ]},
+      { _id: 'rm3', name: 'Sugar', category: 'Grocery', unit: 'kg', costPerUnit: 40, suppliers: [
+        { supplierId: 's1', supplierName: 'Krishna Grocery Wholesalers', price: 40, unit: 'kg', notes: 'Refined sulphur-free' }
+      ]},
+      { _id: 'rm4', name: 'Spices Mix', category: 'Grocery', unit: 'kg', costPerUnit: 350, suppliers: [
+        { supplierId: 's1', supplierName: 'Krishna Grocery Wholesalers', price: 350, unit: 'kg', notes: 'Whole Garam Masala' }
+      ]},
+      { _id: 'rm5', name: 'Cooking Oil', category: 'Grocery', unit: 'ltr', costPerUnit: 140, suppliers: [
+        { supplierId: 's1', supplierName: 'Krishna Grocery Wholesalers', price: 140, unit: 'ltr', notes: 'Refined Sunflower Oil' }
+      ]},
+      { _id: 'rm6', name: 'Lentils (Dal)', category: 'Grocery', unit: 'kg', costPerUnit: 120, suppliers: [
+        { supplierId: 's1', supplierName: 'Krishna Grocery Wholesalers', price: 120, unit: 'kg', notes: 'Toor Dal Premium Unpolished' }
+      ]},
+      { _id: 'rm7', name: 'Tea Leaves', category: 'Grocery', unit: 'kg', costPerUnit: 280, suppliers: [
+        { supplierId: 's1', supplierName: 'Krishna Grocery Wholesalers', price: 280, unit: 'kg', notes: 'Assam Strong CTC' }
+      ]},
+      { _id: 'rm8', name: 'Chinese Sauces', category: 'Grocery', unit: 'ltr', costPerUnit: 95, suppliers: [
+        { supplierId: 's1', supplierName: 'Krishna Grocery Wholesalers', price: 95, unit: 'ltr', notes: 'Dark Soya & Chilli' }
+      ]},
+      { _id: 'rm9', name: 'Fresh Paneer', category: 'Dairy', unit: 'kg', costPerUnit: 380, suppliers: [
+        { supplierId: 's2', supplierName: 'Amul Dairy Distributors', price: 380, unit: 'kg', notes: 'Malai Paneer Fresh Daily' }
+      ]},
+      { _id: 'rm10', name: 'Amul Butter', category: 'Dairy', unit: 'kg', costPerUnit: 520, suppliers: [
+        { supplierId: 's2', supplierName: 'Amul Dairy Distributors', price: 520, unit: 'kg', notes: 'Table Butter Salted' }
+      ]},
+      { _id: 'rm11', name: 'Fresh Cream', category: 'Dairy', unit: 'ltr', costPerUnit: 220, suppliers: [
+        { supplierId: 's2', supplierName: 'Amul Dairy Distributors', price: 220, unit: 'ltr', notes: '25% Milk Fat Cream' }
+      ]},
+      { _id: 'rm12', name: 'Full Cream Milk', category: 'Dairy', unit: 'ltr', costPerUnit: 66, suppliers: [
+        { supplierId: 's2', supplierName: 'Amul Dairy Distributors', price: 66, unit: 'ltr', notes: 'Nandini GoodLife / Amul Gold' }
+      ]},
+      { _id: 'rm13', name: 'Khoya (Mawa)', category: 'Dairy', unit: 'kg', costPerUnit: 320, suppliers: [
+        { supplierId: 's2', supplierName: 'Amul Dairy Distributors', price: 320, unit: 'kg', notes: 'Hariyali Sweet Mawa' }
+      ]},
+      { _id: 'rm14', name: 'Desi Ghee', category: 'Dairy', unit: 'kg', costPerUnit: 650, suppliers: [
+        { supplierId: 's2', supplierName: 'Amul Dairy Distributors', price: 650, unit: 'kg', notes: 'Pure Cow Desi Ghee' }
+      ]},
+      { _id: 'rm15', name: 'Mixed Vegetables', category: 'Veg/Fruit', unit: 'kg', costPerUnit: 50, suppliers: [
+        { supplierId: 's3', supplierName: 'Green Market Fresh Produce', price: 50, unit: 'kg', notes: 'Carrot, Beans, Cauliflower' }
+      ]},
+      { _id: 'rm16', name: 'Onions & Potatoes', category: 'Veg/Fruit', unit: 'kg', costPerUnit: 35, suppliers: [
+        { supplierId: 's3', supplierName: 'Green Market Fresh Produce', price: 35, unit: 'kg', notes: 'Nasik Red Onions & Agra Aloo' }
+      ]},
+      { _id: 'rm17', name: 'Capsicum & Tomato', category: 'Veg/Fruit', unit: 'kg', costPerUnit: 60, suppliers: [
+        { supplierId: 's3', supplierName: 'Green Market Fresh Produce', price: 60, unit: 'kg', notes: 'Green Capsicum & Hybrid Tamatar' }
+      ]},
+      { _id: 'rm18', name: 'Mint & Lemon', category: 'Veg/Fruit', unit: 'kg', costPerUnit: 80, suppliers: [
+        { supplierId: 's3', supplierName: 'Green Market Fresh Produce', price: 80, unit: 'kg', notes: 'Fresh Pudina bunches & Juicy Lemons' }
+      ]},
+      { _id: 'rm19', name: 'Assorted Fresh Fruits', category: 'Veg/Fruit', unit: 'kg', costPerUnit: 120, suppliers: [
+        { supplierId: 's3', supplierName: 'Green Market Fresh Produce', price: 120, unit: 'kg', notes: 'Apple, Papaya, Pineapple, Grapes' }
+      ]},
+      { _id: 'rm20', name: 'LPG Commercial Cylinder', category: 'Fuel', unit: 'cylinder', costPerUnit: 1850, suppliers: [
+        { supplierId: 's4', supplierName: 'HP Commercial Gas Corp', price: 1850, unit: 'cylinder', notes: '19kg Blue Cylinder Refill' }
+      ]},
+      { _id: 'rm21', name: 'Charcoal / Wood', category: 'Fuel', unit: 'bag', costPerUnit: 450, suppliers: [
+        { supplierId: 's4', supplierName: 'HP Commercial Gas Corp', price: 450, unit: 'bag', notes: 'High Heat Hardwood Charcoal' }
+      ]}
     ];
 
     let masterMenuData = { categories: [] };
