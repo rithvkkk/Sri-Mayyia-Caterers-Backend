@@ -999,25 +999,37 @@ createCRUDRoutes(app, '/api/labour-categories', LabourCategory);
 
 // ─────────────────── CLOUD STORAGE UPLOAD (Cloudinary & AWS S3) ───────────────────
 const getCloudinaryClient = () => {
-  const cloudinaryUrl = process.env.CLOUDINARY_URL;
-  if (cloudinaryUrl) {
-    const match = cloudinaryUrl.match(/^cloudinary:\/\/([^:]+):([^@]+)@(.+)$/);
+  let rawUrl = process.env.CLOUDINARY_URL || '';
+  if (rawUrl) {
+    let clean = rawUrl.trim().replace(/^["'`]|["'`]$/g, '').trim();
+    // Handle case where user pasted 'CLOUDINARY_URL=cloudinary://...' into Vercel value field
+    clean = clean.replace(/^CLOUDINARY_URL\s*=\s*/i, '').trim();
+    clean = clean.replace(/\/+$/, '');
+
+    const match = clean.match(/^cloudinary:\/\/([^:]+):([^@]+)@([^/?#\s]+)/i);
     if (match) {
-      cloudinary.config({
-        api_key: match[1],
-        api_secret: match[2],
-        cloud_name: match[3],
-        secure: true
-      });
-      return cloudinary;
+      const apiKey = match[1].trim();
+      const apiSecret = match[2].trim();
+      const cloudName = match[3].trim();
+
+      // Guard against placeholder strings left unchanged
+      if (!apiKey.includes('<') && !apiSecret.includes('<') && !cloudName.includes('<')) {
+        cloudinary.config({
+          api_key: apiKey,
+          api_secret: apiSecret,
+          cloud_name: cloudName,
+          secure: true
+        });
+        return cloudinary;
+      }
     }
   }
 
-  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-  const apiKey = process.env.CLOUDINARY_API_KEY;
-  const apiSecret = process.env.CLOUDINARY_API_SECRET;
+  const cloudName = (process.env.CLOUDINARY_CLOUD_NAME || process.env.CLOUDINARY_NAME || process.env.CLOUD_NAME || '').trim().replace(/^["'`]|["'`]$/g, '');
+  const apiKey = (process.env.CLOUDINARY_API_KEY || '').trim().replace(/^["'`]|["'`]$/g, '');
+  const apiSecret = (process.env.CLOUDINARY_API_SECRET || '').trim().replace(/^["'`]|["'`]$/g, '');
 
-  if (cloudName && apiKey && apiSecret) {
+  if (cloudName && apiKey && apiSecret && !apiKey.includes('<') && !apiSecret.includes('<')) {
     cloudinary.config({
       cloud_name: cloudName,
       api_key: apiKey,
@@ -1054,13 +1066,14 @@ const getS3Client = () => {
 };
 
 // Check Storage Configuration Status
-app.get('/api/upload/status', (req, res) => {
+app.get(['/api/upload/status', '/upload/status'], (req, res) => {
   const cloudinaryClient = getCloudinaryClient();
   if (cloudinaryClient) {
+    const conf = cloudinaryClient.config();
     return res.json({
       provider: 'Cloudinary',
       configured: true,
-      cloudName: process.env.CLOUDINARY_CLOUD_NAME || 'configured'
+      cloudName: conf.cloud_name || process.env.CLOUDINARY_CLOUD_NAME || 'configured'
     });
   }
 
@@ -1074,7 +1087,7 @@ app.get('/api/upload/status', (req, res) => {
 });
 
 // Upload Image to Cloudinary or AWS S3
-app.post('/api/upload/image', async (req, res) => {
+app.post(['/api/upload/image', '/upload/image'], async (req, res) => {
   try {
     const { image, name = 'image.jpg', folder = 'items' } = req.body;
     if (!image || typeof image !== 'string') {
@@ -1086,17 +1099,26 @@ app.post('/api/upload/image', async (req, res) => {
     // 1. Try Cloudinary first
     const cloudinaryClient = getCloudinaryClient();
     if (cloudinaryClient) {
-      const uploadRes = await cloudinaryClient.uploader.upload(image, {
-        folder: `caterflow/${safeFolder}`,
-        resource_type: 'image'
-      });
-      return res.json({
-        success: true,
-        url: uploadRes.secure_url,
-        key: uploadRes.public_id,
-        provider: 'Cloudinary',
-        sizeBytes: uploadRes.bytes
-      });
+      try {
+        const uploadRes = await cloudinaryClient.uploader.upload(image, {
+          folder: `caterflow/${safeFolder}`,
+          resource_type: 'image'
+        });
+        return res.json({
+          success: true,
+          url: uploadRes.secure_url,
+          key: uploadRes.public_id,
+          provider: 'Cloudinary',
+          sizeBytes: uploadRes.bytes
+        });
+      } catch (cloudErr) {
+        console.error('Cloudinary API upload error:', cloudErr);
+        return res.status(400).json({
+          success: false,
+          error: `Cloudinary upload error: ${cloudErr.message || 'Authentication or upload failed'}`,
+          configured: true
+        });
+      }
     }
 
     // 2. Fallback to AWS S3 if configured
@@ -1166,7 +1188,7 @@ app.post('/api/upload/image', async (req, res) => {
 
     return res.status(503).json({
       success: false,
-      error: 'Cloud storage is not configured. Please set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET in backend/.env',
+      error: 'Cloud storage is not configured. Please set CLOUDINARY_URL (or CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET) in your backend environment variables.',
       configured: false
     });
   } catch (err) {
@@ -1176,7 +1198,7 @@ app.post('/api/upload/image', async (req, res) => {
 });
 
 // Delete Image from Cloudinary or AWS S3
-app.delete('/api/upload/image', async (req, res) => {
+app.delete(['/api/upload/image', '/upload/image'], async (req, res) => {
   try {
     const { key, url } = req.body;
     let targetKey = key;
