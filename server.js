@@ -1096,14 +1096,42 @@ app.post(['/api/upload/image', '/upload/image'], async (req, res) => {
 
     const safeFolder = folder.replace(/[^a-zA-Z0-9_\-]/g, '') || 'items';
 
+    // Parse base64 and extract MIME type + raw base64 data
+    const match = image.match(/^data:([^;]+);base64,(.+)$/s);
+    let mimeType = 'image/jpeg';
+    let base64Data = image;
+
+    if (match) {
+      mimeType = match[1].toLowerCase();
+      base64Data = match[2];
+    }
+
+    // Clean any whitespace, newlines, carriage returns
+    base64Data = base64Data.replace(/\s+/g, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    if (!buffer || buffer.length === 0) {
+      return res.status(400).json({ success: false, error: 'Invalid or empty image data payload.' });
+    }
+
     // 1. Try Cloudinary first
     const cloudinaryClient = getCloudinaryClient();
     if (cloudinaryClient) {
       try {
-        const uploadRes = await cloudinaryClient.uploader.upload(image, {
-          folder: `caterflow/${safeFolder}`,
-          resource_type: 'image'
+        const uploadRes = await new Promise((resolve, reject) => {
+          const uploadStream = cloudinaryClient.uploader.upload_stream(
+            {
+              folder: `caterflow/${safeFolder}`,
+              resource_type: 'image'
+            },
+            (error, result) => {
+              if (error) return reject(error);
+              resolve(result);
+            }
+          );
+          uploadStream.end(buffer);
         });
+
         return res.json({
           success: true,
           url: uploadRes.secure_url,
@@ -1124,21 +1152,6 @@ app.post(['/api/upload/image', '/upload/image'], async (req, res) => {
     // 2. Fallback to AWS S3 if configured
     const s3Config = getS3Client();
     if (s3Config) {
-      const match = image.match(/^data:([^;]+);base64,(.+)$/);
-      let mimeType = 'image/jpeg';
-      let base64Data = image;
-
-      if (match) {
-        mimeType = match[1].toLowerCase();
-        base64Data = match[2];
-      }
-
-      const allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
-      if (!allowedMimes.includes(mimeType)) {
-        return res.status(400).json({ success: false, error: 'Invalid file type. Only JPG, PNG, and WEBP images are supported.' });
-      }
-
-      const buffer = Buffer.from(base64Data, 'base64');
       if (buffer.length === 0) {
         return res.status(400).json({ success: false, error: 'Decoded image data is empty.' });
       }
