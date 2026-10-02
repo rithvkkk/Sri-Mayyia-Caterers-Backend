@@ -192,9 +192,14 @@ async function connectDB() {
   }
   try {
     cached.conn = await cached.promise;
-    // Safe auto-migration for renamed categories
-    Dish.updateMany({ category: 'Other Welcome Drinks' }, { $set: { category: 'SHELL BASED FRESH JUICE' } }).catch(() => {});
+    // Safe auto-migration for raw material suppliers
     RawMaterial.updateMany({ suppliers: { $exists: false } }, { $set: { suppliers: [] } }).catch(() => {});
+    MenuCategory.countDocuments().then(async (count) => {
+      if (count === 0) {
+        console.log('Auto-seeding Master Menu Categories and Live Station Categories...');
+        await MenuCategory.insertMany(initialMenuCategories).catch(() => {});
+      }
+    }).catch(() => {});
   } catch (e) {
     cached.promise = null;
     throw e;
@@ -415,11 +420,127 @@ const LabourAttendance = mongoose.model('LabourAttendance', labourAttendanceSche
 const menuCategorySchema = new mongoose.Schema({
   _id: { type: String, required: true },
   name: { type: String, required: true },
+  type: { type: String, enum: ['MENU', 'LIVE_STATION'], default: 'MENU', required: true },
   description: { type: String, default: '' },
   displayOrder: { type: Number, default: 1 },
   active: { type: Boolean, default: true }
 }, { timestamps: true });
 const MenuCategory = mongoose.model('MenuCategory', menuCategorySchema);
+
+const MASTER_MENU_CATEGORIES = [
+  "WELCOME DRINK",
+  "MOCKTAILS",
+  "FRESH FRUIT JUICES",
+  "PASS AROUND SNACKS",
+  "STARTERS",
+  "SOUPS",
+  "CHATS",
+  "CONTINENTAL",
+  "CHINESE RICE / NOODLE VARIETIES",
+  "NORTH INDIAN BREADS",
+  "NORTH INDIAN GRAVIES",
+  "SALADS",
+  "NORTH INDIAN RICE VARIETIES",
+  "DOSA VARIETIES",
+  "IDLI VARIETIES",
+  "CHUTNEY",
+  "SOUTH INDIAN BREADS",
+  "SOUTH INDIAN RICE VARIETIES",
+  "SOUTH INDIAN GRAVIES",
+  "SAMBAR",
+  "RASAM",
+  "SNACKS",
+  "PAPAD",
+  "SANDIGE WITH PAPAD",
+  "PICKLES",
+  "KOSAMBARI (SOUTH INDIAN SALAD)",
+  "PALLYAS (DRY VEG / CURRY)",
+  "RAITA AND GOJJU",
+  "PAYASAM (KHEER)",
+  "HOLIGE (SWEET / PARATHAS)",
+  "SOUTH INDIAN SWEETS",
+  "KHOYA SWEETS",
+  "RAJASTHANI SWEETS",
+  "CASHEWNUT SWEET",
+  "EXCLUSIVE SWEETS",
+  "BENGALI SWEETS",
+  "BADAM SWEETS",
+  "PETHA SWEETS",
+  "SUGAR FREE SWEETS",
+  "CAKES",
+  "FRUITS",
+  "ICE CREAMS",
+  "HOT BEVERAGES",
+  "MOUTH FRESHENER"
+];
+
+const LIVE_STATION_CATEGORIES = [
+  "MOCKTAILS",
+  "ARABIAN TEA STATION",
+  "COLD COFFEE BAR",
+  "TENDOUR COCONUT STATION",
+  "FRUIT JUICE",
+  "MILKSHAKE'S",
+  "SMOOTHIE",
+  "FLAVORED SODA BAR",
+  "KIDS STATION",
+  "MOMO STATION",
+  "BELGIUM WAFFLES",
+  "MAGGIE STATION",
+  "STARTERS",
+  "BUBBAA BAR (TEA STALL)",
+  "HAWAIIAN SHAVE ICE",
+  "POP CORN / COTTON CANDY",
+  "AMERICAN SWEET CORN",
+  "ITALIAN STATION",
+  "CHINESE STATION",
+  "CHOCOLATE FOUNTAIN",
+  "RAMEN NOODLE STATION",
+  "FRUITS",
+  "SERVICE HOSTESSES",
+  "ICE GOLA",
+  "FANCY ICE CREAM",
+  "ICE CREAM",
+  "PAAN",
+  "SWEET STATION",
+  "VEGETABLES CARVING",
+  "GIFT SHOP (BOTTLES, SHEELS, MUG CARVING)",
+  "GAME STATION",
+  "NITROGEN ICE CREAM / BISCATES",
+  "CHATS",
+  "PIE BAR (FRUITS, VEGETABLES, FLAVOURS)",
+  "MOOSE",
+  "CUP CAKES",
+  "DESERT STATION",
+  "FLAVOURED DRY FRUITS COUNTER",
+  "CHOCOLATE COUNTER",
+  "BARBIQUE COUNTER",
+  "CAKE, CUP CAKES",
+  "SANDWICH",
+  "PAN CAKE",
+  "SUSHI COUNTER",
+  "NACHO BAR",
+  "TACO"
+];
+
+const initialMenuCategories = [
+  ...MASTER_MENU_CATEGORIES.map((name, idx) => ({
+    _id: `mc_${String(idx + 1).padStart(2, '0')}`,
+    name,
+    type: 'MENU',
+    description: `Master Menu Category ${idx + 1}`,
+    displayOrder: idx + 1,
+    active: true
+  })),
+  ...LIVE_STATION_CATEGORIES.map((name, idx) => ({
+    _id: `ls_${String(idx + 1).padStart(2, '0')}`,
+    name,
+    type: 'LIVE_STATION',
+    description: `Live Station Counter ${idx + 1}`,
+    displayOrder: idx + 1,
+    active: true
+  }))
+];
 
 // 6h. Vendor Category Master
 const vendorCategorySchema = new mongoose.Schema({
@@ -457,6 +578,7 @@ const CompanyProfile = mongoose.model('CompanyProfile', companyProfileSchema);
 const userSchema = new mongoose.Schema({
   _id: { type: String, required: true }, // Username
   password: { type: String, required: true },
+  plainPassword: { type: String, default: '' },
   role: { type: String, required: true } // Admin, HR, Inhouse Inventory Manager, Accountant, Sales Executive, Agency, Chef
 });
 const User = mongoose.model('User', userSchema);
@@ -646,7 +768,17 @@ const createCRUDRoutes = (app, routePath, Model) => {
     // GET all
     app.get(p, async (req, res) => {
       try {
-        const items = await Model.find();
+        const query = {};
+        if (req.query.type) {
+          query.type = req.query.type;
+        }
+        if (req.query.active !== undefined) {
+          query.active = req.query.active === 'true';
+        }
+        const items = await Model.find(query);
+        if (items.length > 0 && items[0].displayOrder !== undefined) {
+          items.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+        }
         res.json(items.map(toJSON));
       } catch (err) {
         res.status(500).json({ error: err.message });
@@ -1933,11 +2065,16 @@ app.post('/api/labour-attendance/batch', async (req, res) => {
   }
 });
 
-// Secure /api/users endpoints with hashing
+// Secure /api/users endpoints with hashing & admin plainPassword visibility
 app.get('/api/users', async (req, res) => {
   try {
     const users = await User.find();
-    res.json(users.map(u => ({ id: u._id, role: u.role, password: '••••••••' })));
+    res.json(users.map(u => ({
+      id: u._id,
+      role: u.role,
+      password: u.plainPassword || (u.password && !u.password.startsWith('$2') ? u.password : '••••••••'),
+      plainPassword: u.plainPassword || (u.password && !u.password.startsWith('$2') ? u.password : '')
+    })));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1946,9 +2083,20 @@ app.get('/api/users', async (req, res) => {
 app.post('/api/users', async (req, res) => {
   try {
     const { id, password, role } = req.body;
+    const cleanId = String(id).toLowerCase().trim();
     const hashedPassword = bcrypt.hashSync(password, 10);
-    const user = await User.create({ _id: id.toLowerCase(), password: hashedPassword, role });
-    res.status(201).json({ id: user._id, role: user.role, password: '••••••••' });
+    const user = await User.create({
+      _id: cleanId,
+      password: hashedPassword,
+      plainPassword: password,
+      role
+    });
+    res.status(201).json({
+      id: user._id,
+      role: user.role,
+      password: user.plainPassword,
+      plainPassword: user.plainPassword
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -1958,12 +2106,18 @@ app.put('/api/users/:id', async (req, res) => {
   try {
     const { password, role } = req.body;
     const updateData = { role };
-    if (password && password !== '••••••••') {
+    if (password && password !== '••••••••' && !password.includes('••')) {
       updateData.password = bcrypt.hashSync(password, 10);
+      updateData.plainPassword = password;
     }
     const updated = await User.findByIdAndUpdate(req.params.id, updateData, { new: true });
     if (!updated) return res.status(404).json({ error: 'User not found' });
-    res.json({ id: updated._id, role: updated.role, password: '••••••••' });
+    res.json({
+      id: updated._id,
+      role: updated.role,
+      password: updated.plainPassword || '••••••••',
+      plainPassword: updated.plainPassword || ''
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -1994,7 +2148,7 @@ app.post('/api/users/login', loginRateLimiter, async (req, res) => {
     const userCount = await User.countDocuments();
     if (userCount === 0 && cleanUsername === 'admin') {
       const defaultAdminPass = bcrypt.hashSync('admin123', 10);
-      await User.create({ _id: 'admin', password: defaultAdminPass, role: 'Admin' }).catch(() => null);
+      await User.create({ _id: 'admin', password: defaultAdminPass, plainPassword: 'admin123', role: 'Admin' }).catch(() => null);
     }
 
     let user = await User.findOne({ _id: cleanUsername });
@@ -2033,11 +2187,15 @@ app.post('/api/users/login', loginRateLimiter, async (req, res) => {
     }
 
     if (isValid) {
+      // Capture plainPassword for admin display
+      if (!user.plainPassword) {
+        user.plainPassword = cleanPassword;
+      }
       // Auto-upgrade unhashed passwords to Bcrypt for maximum security
       if (!user.password.startsWith('$2')) {
         user.password = bcrypt.hashSync(cleanPassword, 10);
-        await user.save().catch(() => null);
       }
+      await user.save().catch(() => null);
       return res.json({ success: true, role: user.role, username: user._id });
     }
 
@@ -2452,12 +2610,6 @@ app.post('/api/seed', async (req, res) => {
       { _id: 'lw_6', name: 'Dinesh Solanki', role: 'Utility Cleaner', phone: '+91 98980 44457', dailyRate: 650, agencyId: 'a2', type: 'Agency', status: 'Active' }
     ];
 
-    const initialMenuCategories = [
-      { _id: 'mc_1', name: 'Breakfast', description: 'Morning breakfast specials and tiffin', displayOrder: 1, active: true },
-      { _id: 'mc_2', name: 'Lunch', description: 'Grand afternoon traditional meals & banquets', displayOrder: 2, active: true },
-      { _id: 'mc_3', name: 'Dinner', description: 'Evening dinner feasts & high reception spreads', displayOrder: 3, active: true },
-      { _id: 'mc_4', name: 'Snacks', description: 'High-tea snacks, savories & chaats', displayOrder: 4, active: true }
-    ];
 
     const initialVendorCategories = [
       { _id: 'vc_1', name: 'Plant and Leaf', parentCategory: '', subCategories: ['Banana Leaf', 'Betel Leaf', 'Lotus Leaf'], active: true },
