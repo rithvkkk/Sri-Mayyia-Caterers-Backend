@@ -4,7 +4,13 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const { S3Client, PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const cloudinary = require('cloudinary').v2;
-const { BlobServiceClient, StorageSharedKeyCredential } = require('@azure/storage-blob');
+const {
+  BlobServiceClient,
+  StorageSharedKeyCredential,
+  generateBlobSASQueryParameters,
+  BlobSASPermissions,
+  SASProtocol
+} = require('@azure/storage-blob');
 const crypto = require('crypto');
 require('dotenv').config();
 
@@ -306,7 +312,7 @@ const Agency = mongoose.model('Agency', agencySchema);
 
 // 6b. Vessel / Equipment
 const vesselSchema = new mongoose.Schema({
-  _id: { type: String, required: true },
+  _id: { type: mongoose.Schema.Types.Mixed },
   name: { type: String, required: true },
   category: { type: String, required: true }, // Cooking Vessel, Serving Gear, Utensils, Heating & Fuel
   totalQty: { type: Number, required: true },
@@ -323,7 +329,7 @@ const Vessel = mongoose.model('Vessel', vesselSchema);
 
 // 6c. Provision / Dry Grocery
 const provisionSchema = new mongoose.Schema({
-  _id: { type: String, required: true },
+  _id: { type: mongoose.Schema.Types.Mixed },
   name: { type: String, required: true },
   category: { type: String, required: true }, // Grocery, Ghee & Oils, Spices & Condiments, Dry Fruits
   unit: { type: String, required: true }, // kg, ltr, bag, pkt
@@ -655,6 +661,14 @@ const createCRUDRoutes = (app, routePath, Model) => {
       }
     });
 
+    // Helper to find by string ID or ObjectId
+    const buildIdFilter = (id) => {
+      if (mongoose.Types.ObjectId.isValid(id) && String(new mongoose.Types.ObjectId(id)) === String(id)) {
+        return { $or: [{ _id: id }, { _id: new mongoose.Types.ObjectId(id) }] };
+      }
+      return { _id: id };
+    };
+
     // PUT update
     app.put(`${p}/:id`, async (req, res) => {
       try {
@@ -668,7 +682,7 @@ const createCRUDRoutes = (app, routePath, Model) => {
         if (payload.stockQty !== undefined && Number(payload.stockQty) < 0) {
           return res.status(400).json({ error: 'Stock quantity cannot be negative' });
         }
-        const updated = await Model.findByIdAndUpdate(req.params.id, payload, { new: true });
+        const updated = await Model.findOneAndUpdate(buildIdFilter(req.params.id), payload, { new: true });
         if (!updated) return res.status(404).json({ error: 'Item not found' });
         res.json(toJSON(updated));
       } catch (err) {
@@ -679,7 +693,7 @@ const createCRUDRoutes = (app, routePath, Model) => {
     // DELETE
     app.delete(`${p}/:id`, async (req, res) => {
       try {
-        const deleted = await Model.findByIdAndDelete(req.params.id);
+        const deleted = await Model.findOneAndDelete(buildIdFilter(req.params.id));
         if (!deleted) return res.status(404).json({ error: 'Item not found' });
         res.json({ success: true, message: 'Deleted successfully' });
       } catch (err) {
@@ -1032,15 +1046,23 @@ const getAzureBlobClient = () => {
       const blobServiceClient = BlobServiceClient.fromConnectionString(connStr);
       const containerClient = blobServiceClient.getContainerClient(containerName);
       let derivedAccount = blobServiceClient.accountName || 'azure';
+      let credential = null;
       const nameMatch = connStr.match(/AccountName=([^;]+)/i);
+      const keyMatch = connStr.match(/AccountKey=([^;]+)/i);
       if (nameMatch && nameMatch[1]) {
         derivedAccount = nameMatch[1].trim();
+      }
+      if (nameMatch && keyMatch && nameMatch[1] && keyMatch[1]) {
+        try {
+          credential = new StorageSharedKeyCredential(nameMatch[1].trim(), keyMatch[1].trim());
+        } catch (e) {}
       }
       return {
         serviceClient: blobServiceClient,
         containerClient,
         containerName,
-        accountName: derivedAccount
+        accountName: derivedAccount,
+        credential
       };
     } catch (err) {
       console.error('Azure connection string error:', err.message);
@@ -1060,7 +1082,8 @@ const getAzureBlobClient = () => {
         serviceClient: blobServiceClient,
         containerClient,
         containerName,
-        accountName
+        accountName,
+        credential
       };
     } catch (err) {
       console.error('Azure credentials error:', err.message);
@@ -1232,11 +1255,35 @@ app.post(['/api/upload/image', '/upload/image'], async (req, res) => {
         }
       });
 
+      let publicUrl = blockBlobClient.url;
+      if (azureConfig.credential) {
+        try {
+          const startsOn = new Date(Date.now() - 5 * 60 * 1000);
+          const expiresOn = new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000); // 10 years
+          const sasToken = generateBlobSASQueryParameters(
+            {
+              containerName,
+              blobName,
+              permissions: BlobSASPermissions.parse('r'),
+              startsOn,
+              expiresOn,
+              protocol: SASProtocol.HttpsAndHttp
+            },
+            azureConfig.credential
+          ).toString();
+          publicUrl = `${blockBlobClient.url}?${sasToken}`;
+        } catch (sasErr) {
+          console.warn('SAS token generation error, fallback to direct URL:', sasErr.message);
+        }
+      }
+
       const cdnBase = process.env.AZURE_STORAGE_CDN_URL
         ? process.env.AZURE_STORAGE_CDN_URL.replace(/\/$/, '')
         : null;
 
-      const publicUrl = cdnBase ? `${cdnBase}/${blobName}` : blockBlobClient.url;
+      if (cdnBase) {
+        publicUrl = `${cdnBase}/${blobName}`;
+      }
 
       return res.json({
         success: true,
