@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const { S3Client, PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const cloudinary = require('cloudinary').v2;
+const { BlobServiceClient, StorageSharedKeyCredential } = require('@azure/storage-blob');
 global.crypto = require('crypto');
 require('dotenv').config();
 
@@ -997,7 +998,62 @@ createCRUDRoutes(app, '/api/menu-categories', MenuCategory);
 createCRUDRoutes(app, '/api/vendor-categories', VendorCategory);
 createCRUDRoutes(app, '/api/labour-categories', LabourCategory);
 
-// ─────────────────── CLOUD STORAGE UPLOAD (Cloudinary & AWS S3) ───────────────────
+// ─────────────────── CLOUD STORAGE UPLOAD (Azure Blob Storage, Cloudinary & AWS S3) ───────────────────
+const getAzureBlobClient = () => {
+  const connStr = (process.env.AZURE_STORAGE_CONNECTION_STRING || '').trim().replace(/^["'`]|["'`]$/g, '');
+  const containerName = (process.env.AZURE_STORAGE_CONTAINER_NAME || 'caterflow')
+    .trim()
+    .replace(/^["'`]|["'`]$/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '') || 'caterflow';
+
+  const accountName = (process.env.AZURE_STORAGE_ACCOUNT_NAME || process.env.AZURE_STORAGE_ACCOUNT || '').trim().replace(/^["'`]|["'`]$/g, '');
+  const accountKey = (process.env.AZURE_STORAGE_ACCOUNT_KEY || process.env.AZURE_STORAGE_KEY || '').trim().replace(/^["'`]|["'`]$/g, '');
+
+  if (connStr) {
+    try {
+      const blobServiceClient = BlobServiceClient.fromConnectionString(connStr);
+      const containerClient = blobServiceClient.getContainerClient(containerName);
+      let derivedAccount = blobServiceClient.accountName || 'azure';
+      const nameMatch = connStr.match(/AccountName=([^;]+)/i);
+      if (nameMatch && nameMatch[1]) {
+        derivedAccount = nameMatch[1].trim();
+      }
+      return {
+        serviceClient: blobServiceClient,
+        containerClient,
+        containerName,
+        accountName: derivedAccount
+      };
+    } catch (err) {
+      console.error('Azure connection string error:', err.message);
+      return null;
+    }
+  }
+
+  if (accountName && accountKey && !accountName.includes('<') && !accountKey.includes('<')) {
+    try {
+      const credential = new StorageSharedKeyCredential(accountName, accountKey);
+      const blobServiceClient = new BlobServiceClient(
+        `https://${accountName}.blob.core.windows.net`,
+        credential
+      );
+      const containerClient = blobServiceClient.getContainerClient(containerName);
+      return {
+        serviceClient: blobServiceClient,
+        containerClient,
+        containerName,
+        accountName
+      };
+    } catch (err) {
+      console.error('Azure credentials error:', err.message);
+      return null;
+    }
+  }
+
+  return null;
+};
+
 const getCloudinaryClient = () => {
   let rawUrl = process.env.CLOUDINARY_URL || '';
   if (rawUrl) {
@@ -1067,6 +1123,16 @@ const getS3Client = () => {
 
 // Check Storage Configuration Status
 app.get(['/api/upload/status', '/upload/status'], (req, res) => {
+  const azureConfig = getAzureBlobClient();
+  if (azureConfig) {
+    return res.json({
+      provider: 'Azure Blob Storage',
+      configured: true,
+      container: azureConfig.containerName,
+      account: azureConfig.accountName
+    });
+  }
+
   const cloudinaryClient = getCloudinaryClient();
   if (cloudinaryClient) {
     const conf = cloudinaryClient.config();
@@ -1086,7 +1152,7 @@ app.get(['/api/upload/status', '/upload/status'], (req, res) => {
   });
 });
 
-// Upload Image to Cloudinary or AWS S3
+// Upload Image to Azure Blob Storage, Cloudinary, or AWS S3
 app.post(['/api/upload/image', '/upload/image'], async (req, res) => {
   try {
     const { image, name = 'image.jpg', folder = 'items' } = req.body;
@@ -1114,7 +1180,59 @@ app.post(['/api/upload/image', '/upload/image'], async (req, res) => {
       return res.status(400).json({ success: false, error: 'Invalid or empty image data payload.' });
     }
 
-    // 1. Try Cloudinary first
+    // 5MB safety limit
+    const MAX_BUFFER_SIZE_BYTES = 5 * 1024 * 1024;
+    if (buffer.length > MAX_BUFFER_SIZE_BYTES) {
+      return res.status(400).json({ success: false, error: 'Image exceeds maximum 5MB size limit.' });
+    }
+
+    // 1. Try Azure Blob Storage first
+    const azureConfig = getAzureBlobClient();
+    if (azureConfig) {
+      const { containerClient, containerName, accountName } = azureConfig;
+
+      let ext = 'jpg';
+      if (mimeType.includes('png')) ext = 'png';
+      else if (mimeType.includes('webp')) ext = 'webp';
+      else if (mimeType.includes('gif')) ext = 'gif';
+      else if (mimeType.includes('svg')) ext = 'svg';
+
+      const timestamp = Date.now();
+      const cryptoRand = crypto.randomBytes(4).toString('hex');
+      const blobName = `${safeFolder}/${safeFolder}_${timestamp}_${cryptoRand}.${ext}`;
+
+      try {
+        await containerClient.createIfNotExists({ access: 'blob' });
+      } catch (cErr) {
+        // Container might already exist or account permissions may restrict container creation
+      }
+
+      const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+      await blockBlobClient.uploadData(buffer, {
+        blobHTTPHeaders: {
+          blobContentType: mimeType,
+          blobCacheControl: 'public, max-age=31536000'
+        }
+      });
+
+      const cdnBase = process.env.AZURE_STORAGE_CDN_URL
+        ? process.env.AZURE_STORAGE_CDN_URL.replace(/\/$/, '')
+        : null;
+
+      const publicUrl = cdnBase ? `${cdnBase}/${blobName}` : blockBlobClient.url;
+
+      return res.json({
+        success: true,
+        url: publicUrl,
+        key: blobName,
+        container: containerName,
+        account: accountName,
+        sizeBytes: buffer.length,
+        provider: 'Azure Blob Storage'
+      });
+    }
+
+    // 2. Fallback to Cloudinary if configured
     const cloudinaryClient = getCloudinaryClient();
     if (cloudinaryClient) {
       try {
@@ -1149,19 +1267,9 @@ app.post(['/api/upload/image', '/upload/image'], async (req, res) => {
       }
     }
 
-    // 2. Fallback to AWS S3 if configured
+    // 3. Fallback to AWS S3 if configured
     const s3Config = getS3Client();
     if (s3Config) {
-      if (buffer.length === 0) {
-        return res.status(400).json({ success: false, error: 'Decoded image data is empty.' });
-      }
-
-      // 5MB safety limit
-      const MAX_BUFFER_SIZE_BYTES = 5 * 1024 * 1024;
-      if (buffer.length > MAX_BUFFER_SIZE_BYTES) {
-        return res.status(400).json({ success: false, error: 'Image exceeds maximum 5MB size limit.' });
-      }
-
       let ext = 'jpg';
       if (mimeType.includes('png')) ext = 'png';
       else if (mimeType.includes('webp')) ext = 'webp';
@@ -1201,7 +1309,7 @@ app.post(['/api/upload/image', '/upload/image'], async (req, res) => {
 
     return res.status(503).json({
       success: false,
-      error: 'Cloud storage is not configured. Please set CLOUDINARY_URL (or CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET) in your backend environment variables.',
+      error: 'Cloud storage is not configured. Please set AZURE_STORAGE_CONNECTION_STRING in your backend environment variables (or CLOUDINARY_URL / AWS_ACCESS_KEY_ID).',
       configured: false
     });
   } catch (err) {
@@ -1210,12 +1318,38 @@ app.post(['/api/upload/image', '/upload/image'], async (req, res) => {
   }
 });
 
-// Delete Image from Cloudinary or AWS S3
+// Delete Image from Azure Blob Storage, Cloudinary, or AWS S3
 app.delete(['/api/upload/image', '/upload/image'], async (req, res) => {
   try {
     const { key, url } = req.body;
     let targetKey = key;
 
+    // 1. Try Azure Blob Storage first
+    const azureConfig = getAzureBlobClient();
+    if (azureConfig) {
+      if (!targetKey && url && typeof url === 'string') {
+        try {
+          const urlObj = new URL(url);
+          const parts = urlObj.pathname.replace(/^\//, '').split('/');
+          if (parts[0] === azureConfig.containerName) {
+            targetKey = parts.slice(1).join('/');
+          } else {
+            targetKey = parts.join('/');
+          }
+        } catch (e) {
+          targetKey = null;
+        }
+      }
+
+      if (targetKey) {
+        const { containerClient } = azureConfig;
+        const blockBlobClient = containerClient.getBlockBlobClient(targetKey);
+        await blockBlobClient.deleteIfExists();
+        return res.json({ success: true, message: 'Image deleted from Azure Blob Storage successfully', key: targetKey });
+      }
+    }
+
+    // 2. Fallback to Cloudinary if configured
     const cloudinaryClient = getCloudinaryClient();
     if (cloudinaryClient) {
       if (!targetKey && url && typeof url === 'string') {
@@ -1232,6 +1366,7 @@ app.delete(['/api/upload/image', '/upload/image'], async (req, res) => {
       }
     }
 
+    // 3. Fallback to AWS S3 if configured
     const s3Config = getS3Client();
     if (s3Config) {
       if (!targetKey && url && typeof url === 'string') {
