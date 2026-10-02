@@ -119,17 +119,33 @@ const sanitizeInput = (req, res, next) => {
         return undefined;
       }
       if (typeof val === 'string') {
+        const lowerKey = (key || '').toLowerCase();
+        const isMediaOrDoc = lowerKey === 'image' ||
+                             lowerKey === 'photo' ||
+                             lowerKey === 'logo' ||
+                             lowerKey.includes('image') ||
+                             lowerKey.includes('photo') ||
+                             val.startsWith('data:') ||
+                             val.startsWith('http://') ||
+                             val.startsWith('https://') ||
+                             (req.path && req.path.includes('/upload'));
+
+        if (isMediaOrDoc) {
+          // Never truncate or alter image/media base64 or storage URLs
+          return val;
+        }
+
         // Strip script tags and HTML dangerous constructs
         let sanitized = val.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
                            .replace(/javascript:/gi, '');
-        // Length sanity check (max 2000 chars per text field)
-        if (sanitized.length > 2000) {
-          sanitized = sanitized.substring(0, 2000);
+        // Generous length sanity check (max 50000 chars per general text field)
+        if (sanitized.length > 50000) {
+          sanitized = sanitized.substring(0, 50000);
         }
         return sanitized.trim();
       }
       if (Array.isArray(val)) {
-        return val.map(item => sanitizeValue(item));
+        return val.map((item, idx) => sanitizeValue(item, String(idx)));
       }
       if (val !== null && typeof val === 'object') {
         const cleanObj = {};
@@ -1202,14 +1218,18 @@ app.post(['/api/upload/image', '/upload/image'], async (req, res) => {
 
     const safeFolder = folder.replace(/[^a-zA-Z0-9_\-]/g, '') || 'items';
 
-    // Parse base64 and extract MIME type + raw base64 data
-    const match = image.match(/^data:([^;]+);base64,(.+)$/s);
+    // Parse base64 and extract MIME type + raw base64 data without heavy regex backtracking
     let mimeType = 'image/jpeg';
     let base64Data = image;
 
-    if (match) {
-      mimeType = match[1].toLowerCase();
-      base64Data = match[2];
+    const commaIdx = image.indexOf(',');
+    if (commaIdx !== -1 && image.startsWith('data:')) {
+      const header = image.slice(0, commaIdx);
+      const match = header.match(/^data:([^;]+);base64/i);
+      if (match) {
+        mimeType = match[1].toLowerCase();
+      }
+      base64Data = image.slice(commaIdx + 1);
     }
 
     // Clean any whitespace, newlines, carriage returns
