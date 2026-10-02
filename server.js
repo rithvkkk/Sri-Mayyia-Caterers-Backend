@@ -5,8 +5,25 @@ const bcrypt = require('bcryptjs');
 const { S3Client, PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const cloudinary = require('cloudinary').v2;
 const { BlobServiceClient, StorageSharedKeyCredential } = require('@azure/storage-blob');
-global.crypto = require('crypto');
+const crypto = require('crypto');
 require('dotenv').config();
+
+// Safe random hex string generator (compatible with Node.js crypto, Web Crypto, and serverless environments)
+const getRandomHex = (byteCount = 4) => {
+  try {
+    if (crypto && typeof crypto.randomBytes === 'function') {
+      return crypto.randomBytes(byteCount).toString('hex');
+    }
+  } catch (e) {}
+  try {
+    if (typeof globalThis !== 'undefined' && globalThis.crypto && typeof globalThis.crypto.getRandomValues === 'function') {
+      const bytes = new Uint8Array(byteCount);
+      globalThis.crypto.getRandomValues(bytes);
+      return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+    }
+  } catch (e) {}
+  return Math.random().toString(36).substring(2, 2 + byteCount * 2);
+};
 
 const PORT = process.env.PORT || 5000;
 const MONGODB_URI = process.env.MONGODB_URI;
@@ -1198,7 +1215,7 @@ app.post(['/api/upload/image', '/upload/image'], async (req, res) => {
       else if (mimeType.includes('svg')) ext = 'svg';
 
       const timestamp = Date.now();
-      const cryptoRand = crypto.randomBytes(4).toString('hex');
+      const cryptoRand = getRandomHex(4);
       const blobName = `${safeFolder}/${safeFolder}_${timestamp}_${cryptoRand}.${ext}`;
 
       try {
@@ -1275,7 +1292,7 @@ app.post(['/api/upload/image', '/upload/image'], async (req, res) => {
       else if (mimeType.includes('webp')) ext = 'webp';
 
       const timestamp = Date.now();
-      const cryptoRand = crypto.randomBytes(4).toString('hex');
+      const cryptoRand = getRandomHex(4);
       const s3Key = `${safeFolder}/${safeFolder}_${timestamp}_${cryptoRand}.${ext}`;
 
       const { client, bucketName, region } = s3Config;
