@@ -701,6 +701,9 @@ const eventSchema = new mongoose.Schema({
   },
   eventType: { type: String, default: 'Wedding Reception' },
   venueId: { type: String, default: '' },
+  venueName: { type: String, default: '' },
+  venue: { type: String, default: '' },
+  instructions: { type: String, default: '' },
   date: { type: String, required: true }, // Primary / Commencement Date
   dates: [{ type: String }], // Array of multiple event dates
   menuNotes: { type: String, default: '' },
@@ -733,14 +736,15 @@ const eventSchema = new mongoose.Schema({
     subtotal: { type: Number, default: 0 },
     commissionRate: { type: Number, default: 0 },
     commissionAmount: { type: Number, default: 0 },
-    taxRate: { type: Number, default: 5 },
+    taxRate: { type: Number, default: 0 },
     taxType: { type: String, default: 'GST' }, // 'GST' | 'NON_GST'
     isInterState: { type: Boolean, default: false },
     taxAmount: { type: Number, default: 0 },
     totalAmount: { type: Number, default: 0 },
     advancePaid: { type: Number, default: 0 },
     balanceDue: { type: Number, default: 0 },
-    status: { type: String, default: 'Unpaid' } // Unpaid, Partially Paid, Fully Paid
+    status: { type: String, default: 'Unpaid' }, // Unpaid, Partially Paid, Fully Paid
+    instructions: { type: String, default: '' }
   }
 }, { timestamps: true });
 const Event = mongoose.model('Event', eventSchema);
@@ -900,6 +904,9 @@ const handleEventCreation = async (req, res) => {
     if (payload.customer.phone === undefined) payload.customer.phone = '';
     if (payload.customer.email === undefined) payload.customer.email = '';
     if (payload.venueId === undefined) payload.venueId = '';
+    if (payload.venueName === undefined) payload.venueName = '';
+    if (payload.venue === undefined) payload.venue = payload.venueName || '';
+    if (payload.instructions === undefined) payload.instructions = '';
     if (!payload.eventType) payload.eventType = 'Wedding Reception';
     // Micro Event normalization and validation
     if (payload.eventType === 'Micro Home Event') {
@@ -946,7 +953,8 @@ const handleEventCreation = async (req, res) => {
       payload.billing.commissionAmount = Math.round((calculatedSubtotal * commRate / 100) * 100) / 100;
 
       const isGst = payload.billing.taxType !== 'NON_GST';
-      const taxRate = isGst ? (Number(payload.billing.taxRate) || 5) : 0;
+      const taxRate = isGst ? (payload.billing.taxRate !== undefined && !isNaN(Number(payload.billing.taxRate)) ? Math.max(0, Number(payload.billing.taxRate)) : 0) : 0;
+      payload.billing.taxRate = taxRate;
       const taxAmount = Math.round((calculatedSubtotal * taxRate / 100) * 100) / 100;
       payload.billing.taxAmount = taxAmount;
       payload.billing.totalAmount = Math.round((calculatedSubtotal + taxAmount) * 100) / 100;
@@ -1006,7 +1014,8 @@ const handleEventUpdate = async (req, res) => {
       payload.billing.commissionAmount = Math.round((calculatedSubtotal * commRate / 100) * 100) / 100;
 
       const isGst = payload.billing.taxType !== 'NON_GST';
-      const taxRate = isGst ? (Number(payload.billing.taxRate) || 5) : 0;
+      const taxRate = isGst ? (payload.billing.taxRate !== undefined && !isNaN(Number(payload.billing.taxRate)) ? Math.max(0, Number(payload.billing.taxRate)) : 0) : 0;
+      payload.billing.taxRate = taxRate;
       const taxAmount = Math.round((calculatedSubtotal * taxRate / 100) * 100) / 100;
       payload.billing.taxAmount = taxAmount;
       payload.billing.totalAmount = Math.round((calculatedSubtotal + taxAmount) * 100) / 100;
