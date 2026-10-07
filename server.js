@@ -426,12 +426,17 @@ const labourWorkerSchema = new mongoose.Schema({
   name: { type: String, required: true },
   role: { type: String, required: true },
   category: { type: String, default: 'Head Cook' },
+  labourCategory: { type: String, default: '' },
   phone: { type: String, required: true },
+  phoneNumber: { type: String, default: '' },
+  secondaryPhone: { type: String, default: '' },
+  secondaryPhoneNumber: { type: String, default: '' },
   dailyRate: { type: Number, required: true },
   agencyId: { type: String, default: 'Direct Hire' },
   type: { type: String, default: 'Direct' }, // Direct, Agency
   status: { type: String, default: 'Active' }, // Active, On Leave, Inactive
   advancePayment: { type: Number, default: 0 },
+  initialAdvancePaid: { type: Number, default: 0 },
   advances: [{
     id: { type: String },
     amount: { type: Number, required: true },
@@ -741,6 +746,22 @@ const reminderSchema = new mongoose.Schema({
   createdAt: { type: String, default: () => new Date().toISOString() }
 }, { _id: false });
 
+const addonSchema = new mongoose.Schema({
+  id: { type: String, default: () => `addon-${Date.now()}-${Math.random().toString(36).substr(2, 6)}` },
+  category: { type: String, required: true },
+  name: { type: String, default: '' },
+  item: { type: String, default: '' },
+  quantity: { type: Number, default: 0 },
+  pax: { type: Number, default: 0 },
+  useEventPax: { type: Boolean, default: false },
+  appliesTo: { type: String, default: 'All Event' },
+  subFunctionId: { type: String, default: '' },
+  subFunctionName: { type: String, default: '' },
+  rate: { type: Number, default: 0 },
+  price: { type: Number, default: 0 },
+  notes: { type: String, default: '' }
+}, { _id: false });
+
 const eventSchema = new mongoose.Schema({
   _id: { type: String, required: true }, // EV-YYYY-XXX
   customer: {
@@ -766,6 +787,7 @@ const eventSchema = new mongoose.Schema({
   lastModifiedByName: { type: String, default: '' },
   reminders: [reminderSchema],
   subFunctions: [subFunctionSchema],
+  addons: [addonSchema],
   manualMaterials: [manualMaterialSchema],
   transport: {
     vehicles: [vehicleExpenseSchema],
@@ -2797,7 +2819,8 @@ app.post('/api/seed', async (req, res) => {
       { _id: 'lc_8', name: 'Loaders', active: true },
       { _id: 'lc_9', name: 'Cleaners', active: true },
       { _id: 'lc_10', name: 'Ladies Supply', active: true },
-      { _id: 'lc_11', name: 'Coffee Duty', active: true }
+      { _id: 'lc_11', name: 'Coffee Duty', active: true },
+      { _id: 'lc_12', name: 'Rotti', active: true }
     ];
 
     // 3. Create items in Atlas
