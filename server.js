@@ -166,6 +166,49 @@ const sanitizeInput = (req, res, next) => {
 
 app.use(sanitizeInput);
 
+// ─────────────────── AUTHENTICATION & SESSION TOKEN HELPER ───────────────────
+const JWT_SECRET = process.env.JWT_SECRET || 'mayyia-erp-super-secret-key-2026';
+
+const generateAuthToken = (userPayload) => {
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+  const payload = Buffer.from(JSON.stringify({
+    ...userPayload,
+    exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60) // 24 hours
+  })).toString('base64url');
+  const signature = crypto.createHmac('sha256', JWT_SECRET).update(`${header}.${payload}`).digest('base64url');
+  return `${header}.${payload}.${signature}`;
+};
+
+const verifyAuthToken = (token) => {
+  if (!token || typeof token !== 'string') return null;
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  const [header, payload, signature] = parts;
+  const expectedSig = crypto.createHmac('sha256', JWT_SECRET).update(`${header}.${payload}`).digest('base64url');
+  if (signature !== expectedSig) return null;
+  try {
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (data.exp && data.exp < Math.floor(Date.now() / 1000)) return null;
+    return data;
+  } catch (e) {
+    return null;
+  }
+};
+
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.substring(7).trim();
+    const verified = verifyAuthToken(token);
+    if (verified) {
+      req.user = verified;
+    }
+  }
+  next();
+};
+
+app.use(authenticateToken);
+
 // Cached Mongoose connection helper for Vercel Serverless Functions
 let cached = global.mongoose;
 if (!cached) {
@@ -577,6 +620,7 @@ const CompanyProfile = mongoose.model('CompanyProfile', companyProfileSchema);
 // 7b. User/Credential Management Schema
 const userSchema = new mongoose.Schema({
   _id: { type: String, required: true }, // Username
+  name: { type: String, default: '' },
   password: { type: String, required: true },
   plainPassword: { type: String, default: '' },
   role: { type: String, required: true } // Admin, HR, Inhouse Inventory Manager, Accountant, Sales Executive, Agency, Chef
@@ -619,9 +663,14 @@ const subFunctionSchema = new mongoose.Schema({
   id: { type: String, required: true },
   name: { type: String, required: true },
   date: { type: String, default: '' },
+  startTime: { type: String, default: '' },
+  endTime: { type: String, default: '' },
+  time: { type: String, default: '' },
   guestCount: { type: Number, default: 100 },
+  pricePerPlate: { type: Number }, // Session-specific rate per plate
   menuItems: [{ type: String }], // Array of dish IDs
-  clientNotes: { type: String, default: '' }
+  clientNotes: { type: String, default: '' },
+  instructions: { type: String, default: '' }
 }, { _id: false });
 
 const laborAllocationSchema = new mongoose.Schema({
@@ -711,6 +760,10 @@ const eventSchema = new mongoose.Schema({
   createdBy: { type: String, default: 'admin' },
   createdByName: { type: String, default: 'Admin' },
   salesExecutive: { type: String, default: 'admin' },
+  updatedBy: { type: String, default: '' },
+  updatedByName: { type: String, default: '' },
+  lastModifiedBy: { type: String, default: '' },
+  lastModifiedByName: { type: String, default: '' },
   reminders: [reminderSchema],
   subFunctions: [subFunctionSchema],
   manualMaterials: [manualMaterialSchema],
@@ -931,21 +984,52 @@ const handleEventCreation = async (req, res) => {
     }
     if (!payload.date) payload.date = new Date().toISOString().split('T')[0];
     if (!Array.isArray(payload.dates) || payload.dates.length === 0) payload.dates = [payload.date];
-    if (!payload.createdBy) payload.createdBy = 'admin';
-    if (!payload.createdByName) payload.createdByName = 'Admin';
-    if (!payload.salesExecutive) payload.salesExecutive = payload.createdBy || 'admin';
 
-    // Automatic Commission & Financial Calculation
+    // Obtain creator identity securely from authenticated server session / token
+    const authUser = req.user;
+    let creatorId = authUser?.id || authUser?.username;
+    let creatorName = authUser?.name || authUser?.username;
+
+    if (!creatorId) {
+      creatorId = payload.createdBy || 'admin';
+      creatorName = payload.createdByName || payload.salesExecutive || 'Admin';
+    }
+
+    if (creatorId) {
+      try {
+        const u = await User.findById(creatorId);
+        if (u && u.name) creatorName = u.name;
+      } catch (e) {}
+    }
+
+    payload.createdBy = creatorId;
+    payload.createdByName = creatorName || creatorId;
+    payload.salesExecutive = creatorName || creatorId;
+    payload.updatedBy = creatorId;
+    payload.updatedByName = creatorName || creatorId;
+    payload.lastModifiedBy = creatorId;
+    payload.lastModifiedByName = creatorName || creatorId;
+
+    // Automatic Commission & Financial Calculation with Session-Wise Pricing Support
     if (payload.billing) {
-      let totalPax = 0;
+      let calculatedSubtotal = 0;
+      const defaultPricePerPlate = Number(payload.billing.pricePerPlate) || 800;
+
       if (Array.isArray(payload.subFunctions) && payload.subFunctions.length > 0) {
-        totalPax = payload.subFunctions.reduce((sum, sf) => sum + (Number(sf.guestCount) || 0), 0);
+        calculatedSubtotal = payload.subFunctions.reduce((sum, sf) => {
+          const sfPax = Number(sf.guestCount) || 0;
+          const sfRate = (sf.pricePerPlate !== undefined && sf.pricePerPlate !== null && !isNaN(Number(sf.pricePerPlate)))
+            ? Number(sf.pricePerPlate)
+            : defaultPricePerPlate;
+          return sum + (sfPax * sfRate);
+        }, 0);
       } else if (payload.guestCount) {
-        totalPax = Number(payload.guestCount) || 0;
+        calculatedSubtotal = (Number(payload.guestCount) || 0) * defaultPricePerPlate;
+      } else {
+        calculatedSubtotal = Number(payload.billing.subtotal) || 0;
       }
-      const pricePerPlate = Number(payload.billing.pricePerPlate) || 800;
-      const calculatedSubtotal = totalPax > 0 ? (totalPax * pricePerPlate) : (Number(payload.billing.subtotal) || 0);
-      payload.billing.subtotal = calculatedSubtotal;
+
+      payload.billing.subtotal = Math.round(calculatedSubtotal * 100) / 100;
 
       const commRate = Math.max(0, Number(payload.billing.commissionRate) || 0);
       payload.billing.commissionRate = commRate;
@@ -974,6 +1058,9 @@ const handleEventCreation = async (req, res) => {
 
 const handleEventUpdate = async (req, res) => {
   try {
+    const existing = await Event.findById(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'Item not found' });
+
     const payload = { ...req.body };
     if (payload.eventType === 'Micro Home Event') {
       payload.eventType = 'Micro Event';
@@ -996,17 +1083,53 @@ const handleEventUpdate = async (req, res) => {
       }
     }
 
-    // Automatic Commission & Financial Calculation
+    // CRITICAL AUDIT RULE: PRESERVE ORIGINAL BOOKING CREATOR WHEN EVENT IS EDITED
+    payload.createdBy = existing.createdBy || 'Not recorded';
+    payload.createdByName = existing.createdByName || existing.salesExecutive || existing.createdBy || 'Not recorded';
+    payload.salesExecutive = existing.salesExecutive || existing.createdByName || existing.createdBy || 'Not recorded';
+
+    // Record separate last modified by audit identity
+    const authUser = req.user;
+    let updaterId = authUser?.id || authUser?.username;
+    let updaterName = authUser?.name || authUser?.username;
+
+    if (!updaterId) {
+      updaterId = req.body.updatedBy || 'admin';
+      updaterName = req.body.updatedByName || 'Admin';
+    }
+
+    if (updaterId) {
+      try {
+        const u = await User.findById(updaterId);
+        if (u && u.name) updaterName = u.name;
+      } catch (e) {}
+    }
+
+    payload.updatedBy = updaterId;
+    payload.updatedByName = updaterName || updaterId;
+    payload.lastModifiedBy = updaterId;
+    payload.lastModifiedByName = updaterName || updaterId;
+
+    // Automatic Commission & Financial Calculation with Session-Wise Pricing Support
     if (payload.billing) {
-      let totalPax = 0;
+      let calculatedSubtotal = 0;
+      const defaultPricePerPlate = Number(payload.billing.pricePerPlate) || 800;
+
       if (Array.isArray(payload.subFunctions) && payload.subFunctions.length > 0) {
-        totalPax = payload.subFunctions.reduce((sum, sf) => sum + (Number(sf.guestCount) || 0), 0);
+        calculatedSubtotal = payload.subFunctions.reduce((sum, sf) => {
+          const sfPax = Number(sf.guestCount) || 0;
+          const sfRate = (sf.pricePerPlate !== undefined && sf.pricePerPlate !== null && !isNaN(Number(sf.pricePerPlate)))
+            ? Number(sf.pricePerPlate)
+            : defaultPricePerPlate;
+          return sum + (sfPax * sfRate);
+        }, 0);
       } else if (payload.guestCount) {
-        totalPax = Number(payload.guestCount) || 0;
+        calculatedSubtotal = (Number(payload.guestCount) || 0) * defaultPricePerPlate;
+      } else {
+        calculatedSubtotal = Number(payload.billing.subtotal) || 0;
       }
-      const pricePerPlate = Number(payload.billing.pricePerPlate) || 800;
-      const calculatedSubtotal = totalPax > 0 ? (totalPax * pricePerPlate) : (Number(payload.billing.subtotal) || 0);
-      payload.billing.subtotal = calculatedSubtotal;
+
+      payload.billing.subtotal = Math.round(calculatedSubtotal * 100) / 100;
 
       const commRate = Math.max(0, Number(payload.billing.commissionRate) || 0);
       payload.billing.commissionRate = commRate;
@@ -1026,7 +1149,6 @@ const handleEventUpdate = async (req, res) => {
     }
 
     const updated = await Event.findByIdAndUpdate(req.params.id, payload, { new: true });
-    if (!updated) return res.status(404).json({ error: 'Item not found' });
     res.json(toJSON(updated));
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -2205,7 +2327,14 @@ app.post('/api/users/login', loginRateLimiter, async (req, res) => {
         user.password = bcrypt.hashSync(cleanPassword, 10);
       }
       await user.save().catch(() => null);
-      return res.json({ success: true, role: user.role, username: user._id });
+      const token = generateAuthToken({
+        id: user._id,
+        userId: user._id,
+        username: user._id,
+        role: user.role,
+        name: user.name || user._id
+      });
+      return res.json({ success: true, role: user.role, username: user._id, name: user.name || user._id, token });
     }
 
     res.json({ success: false, message: 'Invalid credentials' });
