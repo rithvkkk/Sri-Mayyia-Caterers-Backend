@@ -1051,6 +1051,17 @@ const handleEventCreation = async (req, res) => {
         calculatedSubtotal = Number(payload.billing.subtotal) || 0;
       }
 
+      // Include Add-ons total in subtotal
+      if (Array.isArray(payload.addons) && payload.addons.length > 0) {
+        const addonsCost = payload.addons.reduce((sum, ad) => {
+          const qty = Number(ad.quantity !== undefined ? ad.quantity : ad.pax) || 0;
+          const rate = Number(ad.rate || ad.price || 0);
+          const rowTotal = (qty > 0 && rate > 0) ? (qty * rate) : (Number(ad.price || ad.rate) || 0);
+          return sum + rowTotal;
+        }, 0);
+        calculatedSubtotal += addonsCost;
+      }
+
       payload.billing.subtotal = Math.round(calculatedSubtotal * 100) / 100;
 
       const commRate = Math.max(0, Number(payload.billing.commissionRate) || 0);
@@ -1149,6 +1160,17 @@ const handleEventUpdate = async (req, res) => {
         calculatedSubtotal = (Number(payload.guestCount) || 0) * defaultPricePerPlate;
       } else {
         calculatedSubtotal = Number(payload.billing.subtotal) || 0;
+      }
+
+      // Include Add-ons total in subtotal
+      if (Array.isArray(payload.addons) && payload.addons.length > 0) {
+        const addonsCost = payload.addons.reduce((sum, ad) => {
+          const qty = Number(ad.quantity !== undefined ? ad.quantity : ad.pax) || 0;
+          const rate = Number(ad.rate || ad.price || 0);
+          const rowTotal = (qty > 0 && rate > 0) ? (qty * rate) : (Number(ad.price || ad.rate) || 0);
+          return sum + rowTotal;
+        }, 0);
+        calculatedSubtotal += addonsCost;
       }
 
       payload.billing.subtotal = Math.round(calculatedSubtotal * 100) / 100;
@@ -2257,8 +2279,10 @@ app.post('/api/users', async (req, res) => {
 
 app.put('/api/users/:id', async (req, res) => {
   try {
-    const { password, role } = req.body;
-    const updateData = { role };
+    const { password, role, name } = req.body;
+    const updateData = {};
+    if (role) updateData.role = role;
+    if (name !== undefined) updateData.name = name;
     if (password && password !== '••••••••' && !password.includes('••')) {
       updateData.password = bcrypt.hashSync(password, 10);
       updateData.plainPassword = password;
@@ -2267,6 +2291,7 @@ app.put('/api/users/:id', async (req, res) => {
     if (!updated) return res.status(404).json({ error: 'User not found' });
     res.json({
       id: updated._id,
+      name: updated.name || '',
       role: updated.role,
       password: updated.plainPassword || '••••••••',
       plainPassword: updated.plainPassword || ''
