@@ -348,6 +348,7 @@ const supplierSchema = new mongoose.Schema({
   subCategory: { type: String, default: '' },
   contact: { type: String, default: '' },
   phone: { type: String, default: '' },
+  secondaryPhone: { type: String, default: '' },
   address: { type: String, default: '' },
   email: { type: String, default: '' },
   status: { type: String, default: 'Active' },
@@ -2567,10 +2568,10 @@ app.post('/api/seed', async (req, res) => {
         );
 
     const initialSuppliers = [
-      { _id: 's1', name: 'Krishna Grocery Wholesalers', category: 'Grocery', contact: 'Ramesh Patel', phone: '+91 98765 43210' },
-      { _id: 's2', name: 'Amul Dairy Distributors', category: 'Dairy', contact: 'Suresh Shah', phone: '+91 98250 12345' },
-      { _id: 's3', name: 'Green Market Fresh Produce', category: 'Veg/Fruit', contact: 'Vijay Khetan', phone: '+91 99099 87654' },
-      { _id: 's4', name: 'HP Commercial Gas Corp', category: 'Fuel', contact: 'Dinesh Mehta', phone: '+91 97243 55566' }
+      { _id: 's1', name: 'Krishna Grocery Wholesalers', category: 'Grocery', subCategory: 'Rice & Grains', contact: 'Ramesh Patel', phone: '+91 98765 43210', secondaryPhone: '+91 98765 43211', address: 'APMC Market Yard, Bangalore', email: 'krishna.grocery@gmail.com', status: 'Active', active: true },
+      { _id: 's2', name: 'Amul Dairy Distributors', category: 'Dairy', subCategory: 'Paneer & Butter', contact: 'Suresh Shah', phone: '+91 98250 12345', secondaryPhone: '+91 98250 12346', address: 'Dairy Circle, Bangalore', email: 'amul.dist@gmail.com', status: 'Active', active: true },
+      { _id: 's3', name: 'Green Market Fresh Produce', category: 'Veg/Fruit', subCategory: 'Country Vegetables', contact: 'Vijay Khetan', phone: '+91 99099 87654', secondaryPhone: '+91 99099 87655', address: 'K.R. Market, Bangalore', email: 'greenmarket@gmail.com', status: 'Active', active: true },
+      { _id: 's4', name: 'HP Commercial Gas Corp', category: 'Fuel', subCategory: '19kg Commercial LPG', contact: 'Dinesh Mehta', phone: '+91 97243 55566', secondaryPhone: '+91 97243 55567', address: 'Industrial Area, Bangalore', email: 'hpgas.corp@gmail.com', status: 'Active', active: true }
     ];
 
     const initialLaborRates = [
