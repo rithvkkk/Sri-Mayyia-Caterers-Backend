@@ -3,14 +3,20 @@ const cors = require('cors');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const { S3Client, PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
-const cloudinary = require('cloudinary').v2;
-const {
-  BlobServiceClient,
-  StorageSharedKeyCredential,
-  generateBlobSASQueryParameters,
-  BlobSASPermissions,
-  SASProtocol
-} = require('@azure/storage-blob');
+let cloudinary = null;
+try {
+  cloudinary = require('cloudinary').v2;
+} catch (e) {}
+
+let BlobServiceClient, StorageSharedKeyCredential, generateBlobSASQueryParameters, BlobSASPermissions, SASProtocol;
+try {
+  const azure = require('@azure/storage-blob');
+  BlobServiceClient = azure.BlobServiceClient;
+  StorageSharedKeyCredential = azure.StorageSharedKeyCredential;
+  generateBlobSASQueryParameters = azure.generateBlobSASQueryParameters;
+  BlobSASPermissions = azure.BlobSASPermissions;
+  SASProtocol = azure.SASProtocol;
+} catch (e) {}
 const crypto = require('crypto');
 require('dotenv').config();
 
@@ -243,6 +249,9 @@ async function connectDB() {
         await MenuCategory.insertMany(initialMenuCategories).catch(() => {});
       }
     }).catch(() => {});
+    if (typeof backfillDishNumbers === 'function') {
+      backfillDishNumbers().catch(() => {});
+    }
   } catch (e) {
     cached.promise = null;
     throw e;
@@ -327,8 +336,16 @@ const recipeItemSchema = new mongoose.Schema({
   quantity: { type: Number, required: true }
 }, { _id: false });
 
+// Counter schema for atomic sequential numbering (e.g. DISH-0001, DISH-0002)
+const counterSchema = new mongoose.Schema({
+  _id: { type: String, required: true },
+  seq: { type: Number, default: 0 }
+});
+const Counter = mongoose.model('Counter', counterSchema);
+
 const dishSchema = new mongoose.Schema({
   _id: { type: String, required: true },
+  dishNumber: { type: String, unique: true, sparse: true, index: true },
   name: { type: String, required: true },
   category: { type: String, required: true },
   subCategory: { type: String },
@@ -1327,6 +1344,109 @@ app.post(['/api/labour-workers/:id/advance', '/labour-workers/:id/advance'], asy
   }
 });
 
+// ─────────────────── UNIQUE DISH NUMBER GENERATION (ATOMIC & CONCURRENCY SAFE) ───────────────────
+const getNextDishNumber = async () => {
+  let counter = await Counter.findById('dishNumber');
+  if (!counter) {
+    const dishes = await Dish.find({ dishNumber: { $regex: /^DISH-\d+$/i } }, { dishNumber: 1 }).lean();
+    let maxNum = 0;
+    for (const d of dishes) {
+      if (d.dishNumber) {
+        const match = d.dishNumber.match(/^DISH-(\d+)$/i);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num > maxNum) maxNum = num;
+        }
+      }
+    }
+    if (maxNum === 0) {
+      const count = await Dish.countDocuments();
+      maxNum = Math.max(count, 374);
+    }
+    counter = await Counter.findByIdAndUpdate(
+      'dishNumber',
+      { $setOnInsert: { seq: maxNum } },
+      { upsert: true, new: true }
+    );
+  }
+
+  const updatedCounter = await Counter.findByIdAndUpdate(
+    'dishNumber',
+    { $inc: { seq: 1 } },
+    { new: true, upsert: true }
+  );
+
+  return `DISH-${String(updatedCounter.seq).padStart(4, '0')}`;
+};
+
+const peekNextDishNumber = async () => {
+  let counter = await Counter.findById('dishNumber');
+  let currentSeq = 0;
+  if (!counter) {
+    const dishes = await Dish.find({ dishNumber: { $regex: /^DISH-\d+$/i } }, { dishNumber: 1 }).lean();
+    let maxNum = 0;
+    for (const d of dishes) {
+      if (d.dishNumber) {
+        const match = d.dishNumber.match(/^DISH-(\d+)$/i);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num > maxNum) maxNum = num;
+        }
+      }
+    }
+    if (maxNum === 0) {
+      const count = await Dish.countDocuments();
+      maxNum = Math.max(count, 374);
+    }
+    currentSeq = maxNum;
+  } else {
+    currentSeq = counter.seq;
+  }
+  return `DISH-${String(currentSeq + 1).padStart(4, '0')}`;
+};
+
+const backfillDishNumbers = async () => {
+  try {
+    const unnumberedDishes = await Dish.find({
+      $or: [{ dishNumber: { $exists: false } }, { dishNumber: null }, { dishNumber: '' }]
+    }).sort({ createdAt: 1, _id: 1 });
+
+    if (unnumberedDishes.length > 0) {
+      console.log(`Backfilling dish numbers for ${unnumberedDishes.length} existing dishes...`);
+      const existing = await Dish.find({ dishNumber: { $regex: /^DISH-\d+$/i } }, { dishNumber: 1 }).lean();
+      let maxNum = 0;
+      for (const d of existing) {
+        const match = d.dishNumber?.match(/^DISH-(\d+)$/i);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (num > maxNum) maxNum = num;
+        }
+      }
+
+      for (let i = 0; i < unnumberedDishes.length; i++) {
+        maxNum++;
+        const dishNum = `DISH-${String(maxNum).padStart(4, '0')}`;
+        await Dish.findByIdAndUpdate(unnumberedDishes[i]._id, { dishNumber: dishNum });
+      }
+
+      await Counter.findByIdAndUpdate('dishNumber', { seq: maxNum }, { upsert: true });
+      console.log(`Dish numbers backfilled. Counter synced at ${maxNum}.`);
+    }
+  } catch (err) {
+    console.warn('Error backfilling dish numbers:', err.message);
+  }
+};
+
+// Next Dish Number preview endpoint
+app.get(['/api/dishes/next-number', '/dishes/next-number'], async (req, res) => {
+  try {
+    const nextNumber = await peekNextDishNumber();
+    res.json({ nextDishNumber: nextNumber });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Dishes GET endpoint with MongoDB A-Z name sorting
 app.get(['/api/dishes', '/dishes'], async (req, res) => {
   try {
@@ -1337,9 +1457,111 @@ app.get(['/api/dishes', '/dishes'], async (req, res) => {
   }
 });
 
-createCRUDRoutes(app, '/api/venues', Venue);
-createCRUDRoutes(app, '/api/raw-materials', RawMaterial);
-createCRUDRoutes(app, '/api/dishes', Dish);
+// Dishes POST endpoint with atomic sequential unique dishNumber generation
+app.post(['/api/dishes', '/dishes'], async (req, res) => {
+  try {
+    const payload = { ...req.body };
+    if (!payload.name || !payload.name.trim()) {
+      return res.status(400).json({ error: 'Dish name is required' });
+    }
+    if (!payload.category || !payload.category.trim()) {
+      return res.status(400).json({ error: 'Category is required' });
+    }
+    if (payload.price === undefined || isNaN(Number(payload.price)) || Number(payload.price) < 0) {
+      return res.status(400).json({ error: 'Price must be a non-negative number' });
+    }
+
+    if (!payload._id) {
+      payload._id = payload.id || ('d_' + Date.now());
+    }
+
+    let createdItem = null;
+    let attempts = 0;
+    while (!createdItem && attempts < 5) {
+      attempts++;
+      if (!payload.dishNumber || attempts > 1) {
+        payload.dishNumber = await getNextDishNumber();
+      }
+      try {
+        createdItem = await Dish.create(payload);
+      } catch (err) {
+        if (err.code === 11000 && (err.keyPattern?.dishNumber || (err.message && err.message.includes('dishNumber')))) {
+          payload.dishNumber = null;
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    if (!createdItem) {
+      return res.status(500).json({ error: 'Failed to assign a unique dish number after multiple attempts' });
+    }
+
+    res.status(201).json(toJSON(createdItem));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Dishes PUT endpoint
+app.put(['/api/dishes/:id', '/dishes/:id'], async (req, res) => {
+  try {
+    const payload = { ...req.body };
+    // Prevent accidental overwriting of dishNumber with empty value
+    if (!payload.dishNumber) {
+      delete payload.dishNumber;
+    }
+    if (payload.price !== undefined && Number(payload.price) < 0) {
+      return res.status(400).json({ error: 'Price cannot be negative' });
+    }
+    const updated = await Dish.findByIdAndUpdate(req.params.id, payload, { new: true });
+    if (!updated) return res.status(404).json({ error: 'Dish not found' });
+    res.json(toJSON(updated));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Dishes DELETE endpoint
+app.delete(['/api/dishes/:id', '/dishes/:id'], async (req, res) => {
+  try {
+    const deleted = await Dish.findByIdAndDelete(req.params.id);
+    if (!deleted) return res.status(404).json({ error: 'Dish not found' });
+    res.json({ success: true, message: 'Deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Menu Categories POST endpoint with case-insensitive duplicate check
+app.post(['/api/menu-categories', '/menu-categories'], async (req, res) => {
+  try {
+    const { name, type, description, displayOrder, active } = req.body;
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: 'Category name is required' });
+    }
+    const cleanName = name.trim();
+    const existing = await MenuCategory.findOne({
+      name: { $regex: new RegExp(`^${cleanName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+    });
+    if (existing) {
+      return res.status(409).json({ error: `Category "${cleanName}" already exists`, existing: toJSON(existing) });
+    }
+    const id = req.body._id || req.body.id || (((type || 'MENU') === 'LIVE_STATION' ? 'ls_' : 'mc_') + Date.now());
+    const count = await MenuCategory.countDocuments();
+    const newCat = await MenuCategory.create({
+      _id: id,
+      name: cleanName,
+      type: type || 'MENU',
+      description: description || cleanName,
+      displayOrder: displayOrder !== undefined ? displayOrder : (count + 1),
+      active: active !== undefined ? active : true
+    });
+    res.status(201).json(toJSON(newCat));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
 createCRUDRoutes(app, '/api/suppliers', Supplier);
 createCRUDRoutes(app, '/api/labor-rates', LaborRate);
 createCRUDRoutes(app, '/api/agencies', Agency);
@@ -2542,8 +2764,9 @@ app.post('/api/seed', async (req, res) => {
     }
 
     const initialDishes = Array.isArray(masterMenuData)
-      ? masterMenuData.map(item => ({
+      ? masterMenuData.map((item, idx) => ({
           _id: item._id || item.id,
+          dishNumber: item.dishNumber || `DISH-${String(idx + 1).padStart(4, '0')}`,
           name: item.name,
           category: item.category === 'Other Welcome Drinks' ? 'SHELL BASED FRESH JUICE' : item.category,
           subCategory: item.subCategory,
@@ -2554,8 +2777,9 @@ app.post('/api/seed', async (req, res) => {
         }))
       : (masterMenuData.categories || []).flatMap(cat =>
           (cat.subCategories || []).flatMap(sub =>
-            (sub.items || []).map(item => ({
+            (sub.items || []).map((item, idx) => ({
               _id: item._id || item.id,
+              dishNumber: item.dishNumber || `DISH-${String(idx + 1).padStart(4, '0')}`,
               name: item.name,
               category: (item.category || cat.name) === 'Other Welcome Drinks' ? 'SHELL BASED FRESH JUICE' : (item.category || cat.name),
               subCategory: item.subCategory || sub.name,
@@ -2904,7 +3128,7 @@ app.post('/api/seed', async (req, res) => {
 });
 
 // Export Express app for Vercel Serverless Function execution
-if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL && require.main === module) {
   app.listen(PORT, () => {
     console.log(`CaterFlow Enterprise API running on http://localhost:${PORT}`);
     
