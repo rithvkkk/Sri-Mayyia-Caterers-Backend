@@ -1,7 +1,7 @@
 {
   "name": "catering-management-backend",
   "version": "1.0.0",
-  "description": "Backend API for Sri Mayyia Caterers CaterFlow System",
+  "description": "Backend API for K R Ananth Mayia Catering CaterFlow System",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

@@ -243,6 +243,10 @@ async function connectDB() {
     cached.conn = await cached.promise;
     // Safe auto-migration for raw material suppliers
     RawMaterial.updateMany({ suppliers: { $exists: false } }, { $set: { suppliers: [] } }).catch(() => {});
+    CompanyProfile.updateMany(
+      { name: { $in: ['Sri Mayyia Caterers', 'Shree Mayyia Caterers'] } },
+      { $set: { name: 'K R Ananth Mayia Catering', email: 'info@krananthmayiacatering.com' } }
+    ).catch(() => {});
     MenuCategory.countDocuments().then(async (count) => {
       if (count === 0) {
         console.log('Auto-seeding Master Menu Categories and Live Station Categories...');
@@ -344,7 +348,7 @@ const counterSchema = new mongoose.Schema({
 const Counter = mongoose.model('Counter', counterSchema);
 
 const dishSchema = new mongoose.Schema({
-  _id: { type: String, required: true },
+  _id: { type: mongoose.Schema.Types.Mixed, required: true },
   dishNumber: { type: String, unique: true, sparse: true, index: true },
   name: { type: String, required: true },
   category: { type: String, required: true },
@@ -629,10 +633,10 @@ const LabourCategory = mongoose.model('LabourCategory', labourCategorySchema);
 // 7. Company Profile
 const companyProfileSchema = new mongoose.Schema({
   _id: { type: String, default: 'current_profile' },
-  name: { type: String, default: 'Sri Mayyia Caterers' },
+  name: { type: String, default: 'K R Ananth Mayia Catering' },
   tagline: { type: String, default: 'Legacy of Royal Flavors Since 1953' },
   phone: { type: String, default: '+91 99988 77766' },
-  email: { type: String, default: 'info@srimayyiacaterers.com' },
+  email: { type: String, default: 'info@krananthmayiacatering.com' },
   address: { type: String, default: 'No 43, 2nd Cross, Malleshwaram, Bangalore - 560003' },
   gstin: { type: String, default: '24AAAAA1111A1Z1' },
   defaultTaxRate: { type: Number, default: 18 },
@@ -845,9 +849,10 @@ const Event = mongoose.model('Event', eventSchema);
 // JSON formatting helper for API payloads
 const toJSON = (doc) => {
   if (!doc) return null;
-  const obj = doc.toObject ? doc.toObject() : doc;
-  obj.id = obj._id;
-  delete obj._id;
+  const obj = doc.toObject ? doc.toObject() : { ...doc };
+  const rawId = obj._id !== undefined && obj._id !== null ? String(obj._id) : (obj.id ? String(obj.id) : '');
+  obj.id = rawId;
+  obj._id = rawId;
   delete obj.__v;
   return obj;
 };
@@ -1518,7 +1523,7 @@ app.post(['/api/dishes', '/dishes'], async (req, res) => {
 // Dishes PUT endpoint
 app.put(['/api/dishes/:id', '/dishes/:id'], async (req, res) => {
   try {
-    const targetId = req.params.id;
+    const targetId = decodeURIComponent(req.params.id);
     const payload = { ...req.body };
 
     // Strip immutable primary key & mongoose version fields
@@ -1529,8 +1534,17 @@ app.put(['/api/dishes/:id', '/dishes/:id'], async (req, res) => {
     delete payload.updatedAt;
 
     // Prevent accidental overwriting of dishNumber with empty value
-    if (!payload.dishNumber) {
+    if (!payload.dishNumber || !String(payload.dishNumber).trim()) {
       delete payload.dishNumber;
+    } else {
+      payload.dishNumber = String(payload.dishNumber).trim();
+    }
+
+    if (payload.name) {
+      payload.name = String(payload.name).trim();
+    }
+    if (payload.category) {
+      payload.category = String(payload.category).trim();
     }
 
     // Validate and coerce price
@@ -1545,19 +1559,20 @@ app.put(['/api/dishes/:id', '/dishes/:id'], async (req, res) => {
     // Sanitize recipe array to guarantee valid items matching recipeItemSchema
     if (Array.isArray(payload.recipe)) {
       payload.recipe = payload.recipe
-        .filter(item => item && item.materialId && typeof item.materialId === 'string' && item.materialId.trim().length > 0)
+        .filter(item => item && item.materialId !== undefined && item.materialId !== null && String(item.materialId).trim().length > 0)
         .map(item => ({
           materialId: String(item.materialId).trim(),
           quantity: isNaN(Number(item.quantity)) ? 0 : Number(item.quantity)
         }));
     }
 
-    // Flexible identifier filter: match by _id, id, dishNumber, or ObjectId
+    // Comprehensive identifier filter: match by _id, id, dishNumber, or ObjectId
     const filter = {
       $or: [
         { _id: targetId },
         { id: targetId },
-        ...(payload.dishNumber ? [{ dishNumber: payload.dishNumber }] : [])
+        ...(payload.dishNumber ? [{ dishNumber: payload.dishNumber }] : []),
+        ...(payload.name ? [{ name: payload.name }] : [])
       ]
     };
     if (mongoose.Types.ObjectId.isValid(targetId) && String(new mongoose.Types.ObjectId(targetId)) === String(targetId)) {
@@ -1566,7 +1581,35 @@ app.put(['/api/dishes/:id', '/dishes/:id'], async (req, res) => {
 
     let updated = await Dish.findOneAndUpdate(filter, { $set: payload }, { new: true });
 
-    // If dish was not found in MongoDB (e.g. from initial catalog or local cache), insert it!
+    // Fallback: If not updated via Mongoose and ID is an ObjectId, query native collection
+    if (!updated && mongoose.Types.ObjectId.isValid(targetId)) {
+      try {
+        const nativeFilter = {
+          $or: [
+            { _id: new mongoose.Types.ObjectId(targetId) },
+            { _id: targetId },
+            ...(payload.dishNumber ? [{ dishNumber: payload.dishNumber }] : []),
+            ...(payload.name ? [{ name: payload.name }] : [])
+          ]
+        };
+        const nativeRes = await Dish.collection.findOneAndUpdate(nativeFilter, { $set: payload }, { returnDocument: 'after' });
+        if (nativeRes) {
+          updated = nativeRes.value || (nativeRes._id ? nativeRes : null);
+        }
+      } catch (nativeErr) {
+        console.warn('Native collection findOneAndUpdate notice:', nativeErr.message);
+      }
+    }
+
+    // Fallback: update specifically by dishNumber or name to ensure existing record updates
+    if (!updated && payload.dishNumber) {
+      updated = await Dish.findOneAndUpdate({ dishNumber: payload.dishNumber }, { $set: payload }, { new: true });
+    }
+    if (!updated && payload.name) {
+      updated = await Dish.findOneAndUpdate({ name: payload.name }, { $set: payload }, { new: true });
+    }
+
+    // If dish was not found in MongoDB (e.g. from local cache or new catalog item), insert it!
     if (!updated) {
       const createPayload = {
         _id: targetId,
@@ -1576,7 +1619,16 @@ app.put(['/api/dishes/:id', '/dishes/:id'], async (req, res) => {
       if (!createPayload.dishNumber) {
         createPayload.dishNumber = await getNextDishNumber();
       }
-      updated = await Dish.create(createPayload);
+      try {
+        updated = await Dish.create(createPayload);
+      } catch (createErr) {
+        if (createErr.code === 11000 && (createErr.keyPattern?.dishNumber || (createErr.message && createErr.message.includes('dishNumber')))) {
+          createPayload.dishNumber = await getNextDishNumber();
+          updated = await Dish.create(createPayload);
+        } else {
+          throw createErr;
+        }
+      }
     }
 
     res.json(toJSON(updated));
@@ -1589,17 +1641,24 @@ app.put(['/api/dishes/:id', '/dishes/:id'], async (req, res) => {
 // Dishes DELETE endpoint
 app.delete(['/api/dishes/:id', '/dishes/:id'], async (req, res) => {
   try {
-    const targetId = req.params.id;
+    const targetId = decodeURIComponent(req.params.id);
     const filter = {
       $or: [
         { _id: targetId },
-        { id: targetId }
+        { id: targetId },
+        { dishNumber: targetId }
       ]
     };
     if (mongoose.Types.ObjectId.isValid(targetId) && String(new mongoose.Types.ObjectId(targetId)) === String(targetId)) {
       filter.$or.push({ _id: new mongoose.Types.ObjectId(targetId) });
     }
-    const deleted = await Dish.findOneAndDelete(filter);
+    let deleted = await Dish.findOneAndDelete(filter);
+    if (!deleted && mongoose.Types.ObjectId.isValid(targetId)) {
+      try {
+        const nativeRes = await Dish.collection.findOneAndDelete({ _id: new mongoose.Types.ObjectId(targetId) });
+        if (nativeRes) deleted = nativeRes.value || nativeRes;
+      } catch (e) {}
+    }
     if (!deleted) return res.status(404).json({ error: 'Dish not found' });
     res.json({ success: true, message: 'Deleted successfully' });
   } catch (err) {
@@ -2274,7 +2333,7 @@ app.post('/api/ai/query', async (req, res) => {
 
     if (process.env.GEMINI_API_KEY) {
       const prompt = `User question: "${query}". Context: Pax=${context.pax || 150}, Event=${context.eventType || 'Event'}, Service=${context.serviceStyle || 'Buffet'}. Provide a structured, helpful, professional response for an Indian catering business manager.`;
-      const geminiAnswer = await callGeminiAi(prompt, 'You are the Sri Mayyia Caterers AI Copilot. Be precise, helpful, and focused on Indian catering math, ingredient quantities, labor, and profit margins.');
+      const geminiAnswer = await callGeminiAi(prompt, 'You are the K R Ananth Mayia Catering AI Copilot. Be precise, helpful, and focused on Indian catering math, ingredient quantities, labor, and profit margins.');
       if (geminiAnswer) {
         return res.json({
           success: true,
@@ -2693,6 +2752,12 @@ app.get('/api/company-profile', async (req, res) => {
     let profile = await CompanyProfile.findOne({ _id: 'current_profile' });
     if (!profile) {
       profile = await CompanyProfile.create({ _id: 'current_profile' });
+    } else if (profile.name === 'Sri Mayyia Caterers' || profile.name === 'Shree Mayyia Caterers') {
+      profile.name = 'K R Ananth Mayia Catering';
+      if (profile.email === 'info@srimayyiacaterers.com') {
+        profile.email = 'info@krananthmayiacatering.com';
+      }
+      await profile.save();
     }
     res.json(toJSON(profile));
   } catch (err) {
@@ -3042,10 +3107,10 @@ app.post('/api/seed', async (req, res) => {
 
     const defaultProfile = {
       _id: 'current_profile',
-      name: 'Sri Mayyia Caterers',
+      name: 'K R Ananth Mayia Catering',
       tagline: 'Legacy of Royal Flavors Since 1953',
       phone: '+91 99988 77766',
-      email: 'info@srimayyiacaterers.com',
+      email: 'info@krananthmayiacatering.com',
       address: 'No 43, 2nd Cross, Malleshwaram, Bangalore - 560003',
       gstin: '24AAAAA1111A1Z1',
       defaultTaxRate: 18,
