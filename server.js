@@ -1475,6 +1475,18 @@ app.post(['/api/dishes', '/dishes'], async (req, res) => {
       payload._id = payload.id || ('d_' + Date.now());
     }
 
+    // Sanitize recipe array
+    if (Array.isArray(payload.recipe)) {
+      payload.recipe = payload.recipe
+        .filter(item => item && item.materialId && typeof item.materialId === 'string' && item.materialId.trim().length > 0)
+        .map(item => ({
+          materialId: String(item.materialId).trim(),
+          quantity: isNaN(Number(item.quantity)) ? 0 : Number(item.quantity)
+        }));
+    } else {
+      payload.recipe = [];
+    }
+
     let createdItem = null;
     let attempts = 0;
     while (!createdItem && attempts < 5) {
@@ -1506,18 +1518,70 @@ app.post(['/api/dishes', '/dishes'], async (req, res) => {
 // Dishes PUT endpoint
 app.put(['/api/dishes/:id', '/dishes/:id'], async (req, res) => {
   try {
+    const targetId = req.params.id;
     const payload = { ...req.body };
+
+    // Strip immutable primary key & mongoose version fields
+    delete payload._id;
+    delete payload.id;
+    delete payload.__v;
+    delete payload.createdAt;
+    delete payload.updatedAt;
+
     // Prevent accidental overwriting of dishNumber with empty value
     if (!payload.dishNumber) {
       delete payload.dishNumber;
     }
-    if (payload.price !== undefined && Number(payload.price) < 0) {
-      return res.status(400).json({ error: 'Price cannot be negative' });
+
+    // Validate and coerce price
+    if (payload.price !== undefined) {
+      const p = Number(payload.price);
+      if (isNaN(p) || p < 0) {
+        return res.status(400).json({ error: 'Price must be a non-negative number' });
+      }
+      payload.price = p;
     }
-    const updated = await Dish.findByIdAndUpdate(req.params.id, payload, { new: true });
-    if (!updated) return res.status(404).json({ error: 'Dish not found' });
+
+    // Sanitize recipe array to guarantee valid items matching recipeItemSchema
+    if (Array.isArray(payload.recipe)) {
+      payload.recipe = payload.recipe
+        .filter(item => item && item.materialId && typeof item.materialId === 'string' && item.materialId.trim().length > 0)
+        .map(item => ({
+          materialId: String(item.materialId).trim(),
+          quantity: isNaN(Number(item.quantity)) ? 0 : Number(item.quantity)
+        }));
+    }
+
+    // Flexible identifier filter: match by _id, id, dishNumber, or ObjectId
+    const filter = {
+      $or: [
+        { _id: targetId },
+        { id: targetId },
+        ...(payload.dishNumber ? [{ dishNumber: payload.dishNumber }] : [])
+      ]
+    };
+    if (mongoose.Types.ObjectId.isValid(targetId) && String(new mongoose.Types.ObjectId(targetId)) === String(targetId)) {
+      filter.$or.push({ _id: new mongoose.Types.ObjectId(targetId) });
+    }
+
+    let updated = await Dish.findOneAndUpdate(filter, { $set: payload }, { new: true });
+
+    // If dish was not found in MongoDB (e.g. from initial catalog or local cache), insert it!
+    if (!updated) {
+      const createPayload = {
+        _id: targetId,
+        id: targetId,
+        ...payload
+      };
+      if (!createPayload.dishNumber) {
+        createPayload.dishNumber = await getNextDishNumber();
+      }
+      updated = await Dish.create(createPayload);
+    }
+
     res.json(toJSON(updated));
   } catch (err) {
+    console.error('Error in PUT /dishes/:id:', err);
     res.status(400).json({ error: err.message });
   }
 });
@@ -1525,7 +1589,17 @@ app.put(['/api/dishes/:id', '/dishes/:id'], async (req, res) => {
 // Dishes DELETE endpoint
 app.delete(['/api/dishes/:id', '/dishes/:id'], async (req, res) => {
   try {
-    const deleted = await Dish.findByIdAndDelete(req.params.id);
+    const targetId = req.params.id;
+    const filter = {
+      $or: [
+        { _id: targetId },
+        { id: targetId }
+      ]
+    };
+    if (mongoose.Types.ObjectId.isValid(targetId) && String(new mongoose.Types.ObjectId(targetId)) === String(targetId)) {
+      filter.$or.push({ _id: new mongoose.Types.ObjectId(targetId) });
+    }
+    const deleted = await Dish.findOneAndDelete(filter);
     if (!deleted) return res.status(404).json({ error: 'Dish not found' });
     res.json({ success: true, message: 'Deleted successfully' });
   } catch (err) {
