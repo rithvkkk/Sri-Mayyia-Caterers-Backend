@@ -305,12 +305,30 @@ const venueSchema = new mongoose.Schema({
   venueCode: { type: String, default: '' },
   contactPerson: { type: String, default: '' },
   contactNumber: { type: String, default: '' },
+  ownerName: { type: String, default: '' },
+  ownerContactNumber: { type: String, default: '' },
+  managerName: { type: String, default: '' },
+  managerContactNumber: { type: String, default: '' },
   email: { type: String, default: '' },
   type: { type: String, default: 'Banquet Hall' },
   notes: { type: String, default: '' },
   active: { type: Boolean, default: true },
   assignedSalesPerson: { type: String, default: '' }
 }, { timestamps: true });
+
+venueSchema.pre('save', function() {
+  if (this.managerName && !this.contactPerson) {
+    this.contactPerson = this.managerName;
+  } else if (this.contactPerson && !this.managerName) {
+    this.managerName = this.contactPerson;
+  }
+  if (this.managerContactNumber && !this.contactNumber) {
+    this.contactNumber = this.managerContactNumber;
+  } else if (this.contactNumber && !this.managerContactNumber) {
+    this.managerContactNumber = this.contactNumber;
+  }
+});
+
 const Venue = mongoose.model('Venue', venueSchema);
 
 // 2. Raw Material
@@ -1227,6 +1245,128 @@ app.post('/events', handleEventCreation);
 app.put('/api/events/:id', handleEventUpdate);
 app.put('/events/:id', handleEventUpdate);
 
+// Dedicated Pax (guest count) save endpoint for Menu Planning
+const handleEventPaxUpdate = async (req, res) => {
+  try {
+    const targetId = req.params.id;
+    if (!targetId) return res.status(400).json({ error: 'Event ID is required' });
+
+    const existing = await Event.findOne({
+      $or: [{ _id: targetId }, { id: targetId }]
+    });
+    if (!existing) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    const { subFunctionId, guestCount, pax, pricePerPlate } = req.body;
+    const rawCount = guestCount !== undefined ? guestCount : pax;
+    const numGuests = parseInt(rawCount, 10);
+
+    if (isNaN(numGuests) || numGuests <= 0) {
+      return res.status(400).json({ error: 'Valid positive guest count (Pax) is required' });
+    }
+
+    // Micro Event Pax bounds validation (50 to 100)
+    if (existing.eventType === 'Micro Event' || existing.eventType === 'Micro Home Event') {
+      if (numGuests < 50 || numGuests > 100) {
+        return res.status(400).json({ error: 'Micro Event must have between 50 and 100 Pax (guests).' });
+      }
+    }
+
+    // Update designated subFunction without overwriting menuItems or instructions
+    let matchedSubFunction = false;
+    if (Array.isArray(existing.subFunctions) && existing.subFunctions.length > 0) {
+      if (subFunctionId) {
+        existing.subFunctions = existing.subFunctions.map(sf => {
+          if (sf.id === subFunctionId) {
+            matchedSubFunction = true;
+            const updatedSf = sf.toObject ? sf.toObject() : { ...sf };
+            updatedSf.guestCount = numGuests;
+            if (pricePerPlate !== undefined && !isNaN(Number(pricePerPlate))) {
+              updatedSf.pricePerPlate = Number(pricePerPlate);
+            }
+            return updatedSf;
+          }
+          return sf;
+        });
+      }
+      if (!matchedSubFunction && existing.subFunctions.length > 0) {
+        // Default to first session if subFunctionId not specified
+        existing.subFunctions[0].guestCount = numGuests;
+        if (pricePerPlate !== undefined && !isNaN(Number(pricePerPlate))) {
+          existing.subFunctions[0].pricePerPlate = Number(pricePerPlate);
+        }
+      }
+      // Recompute total event guest count
+      existing.guestCount = existing.subFunctions.reduce((sum, sf) => sum + (Number(sf.guestCount) || 0), 0);
+    } else {
+      existing.guestCount = numGuests;
+    }
+
+    // Audit identity
+    const authUser = req.user;
+    let updaterId = authUser?.id || authUser?.username || req.body.updatedBy || 'admin';
+    let updaterName = authUser?.name || authUser?.username || req.body.updatedByName || 'Admin';
+    existing.updatedBy = updaterId;
+    existing.updatedByName = updaterName;
+    existing.lastModifiedBy = updaterId;
+    existing.lastModifiedByName = updaterName;
+
+    // Recalculate billing financial totals
+    if (existing.billing) {
+      let calculatedSubtotal = 0;
+      const defaultPricePerPlate = Number(existing.billing.pricePerPlate) || 800;
+
+      if (Array.isArray(existing.subFunctions) && existing.subFunctions.length > 0) {
+        calculatedSubtotal = existing.subFunctions.reduce((sum, sf) => {
+          const sfPax = Number(sf.guestCount) || 0;
+          const sfRate = (sf.pricePerPlate !== undefined && sf.pricePerPlate !== null && !isNaN(Number(sf.pricePerPlate)))
+            ? Number(sf.pricePerPlate)
+            : defaultPricePerPlate;
+          return sum + (sfPax * sfRate);
+        }, 0);
+      } else {
+        calculatedSubtotal = (Number(existing.guestCount) || 0) * defaultPricePerPlate;
+      }
+
+      if (Array.isArray(existing.addons) && existing.addons.length > 0) {
+        const addonsCost = existing.addons.reduce((sum, ad) => {
+          const qty = Number(ad.quantity !== undefined ? ad.quantity : ad.pax) || 0;
+          const rate = Number(ad.rate || ad.price || 0);
+          const rowTotal = (qty > 0 && rate > 0) ? (qty * rate) : (Number(ad.price || ad.rate) || 0);
+          return sum + rowTotal;
+        }, 0);
+        calculatedSubtotal += addonsCost;
+      }
+
+      existing.billing.subtotal = Math.round(calculatedSubtotal * 100) / 100;
+      const commRate = Math.max(0, Number(existing.billing.commissionRate) || 0);
+      existing.billing.commissionRate = commRate;
+      existing.billing.commissionAmount = Math.round((calculatedSubtotal * commRate / 100) * 100) / 100;
+
+      const isGst = existing.billing.taxType !== 'NON_GST';
+      const taxRate = isGst ? (existing.billing.taxRate !== undefined && !isNaN(Number(existing.billing.taxRate)) ? Math.max(0, Number(existing.billing.taxRate)) : 0) : 0;
+      existing.billing.taxRate = taxRate;
+      const taxAmount = Math.round((calculatedSubtotal * taxRate / 100) * 100) / 100;
+      existing.billing.taxAmount = taxAmount;
+      existing.billing.totalAmount = Math.round((calculatedSubtotal + taxAmount) * 100) / 100;
+
+      const advance = Math.max(0, Number(existing.billing.advancePaid) || 0);
+      existing.billing.advancePaid = advance;
+      existing.billing.balanceDue = Math.round((existing.billing.totalAmount - advance) * 100) / 100;
+    }
+
+    const updated = await existing.save();
+    res.json(toJSON(updated));
+  } catch (err) {
+    console.error('Error saving pax details:', err);
+    res.status(400).json({ error: err.message });
+  }
+};
+
+app.put('/api/events/:id/pax', handleEventPaxUpdate);
+app.put('/events/:id/pax', handleEventPaxUpdate);
+
 const handleEventDelete = async (req, res) => {
   try {
     const id = req.params.id;
@@ -1410,6 +1550,21 @@ const peekNextDishNumber = async () => {
   return `DISH-${String(currentSeq + 1).padStart(4, '0')}`;
 };
 
+const syncDishNumberCounter = async (dishNumber) => {
+  if (!dishNumber) return;
+  const match = String(dishNumber).trim().match(/^DISH-(\d+)$/i);
+  if (match) {
+    const num = parseInt(match[1], 10);
+    if (!isNaN(num) && num > 0) {
+      await Counter.findByIdAndUpdate(
+        'dishNumber',
+        { $max: { seq: num } },
+        { upsert: true, new: true }
+      );
+    }
+  }
+};
+
 const backfillDishNumbers = async () => {
   try {
     const unnumberedDishes = await Dish.find({
@@ -1462,7 +1617,7 @@ app.get(['/api/dishes', '/dishes'], async (req, res) => {
   }
 });
 
-// Dishes POST endpoint with atomic sequential unique dishNumber generation
+// Dishes POST endpoint with atomic sequential unique dishNumber generation & manual edit support
 app.post(['/api/dishes', '/dishes'], async (req, res) => {
   try {
     const payload = { ...req.body };
@@ -1493,20 +1648,38 @@ app.post(['/api/dishes', '/dishes'], async (req, res) => {
     }
 
     let createdItem = null;
-    let attempts = 0;
-    while (!createdItem && attempts < 5) {
-      attempts++;
-      if (!payload.dishNumber || attempts > 1) {
-        payload.dishNumber = await getNextDishNumber();
+    const isManualDishNumber = Boolean(payload.dishNumber && String(payload.dishNumber).trim());
+
+    if (isManualDishNumber) {
+      const cleanDishNum = String(payload.dishNumber).trim().toUpperCase();
+      const existing = await Dish.findOne({ dishNumber: cleanDishNum });
+      if (existing) {
+        return res.status(400).json({ error: 'This Dish Number is already assigned to another dish. Please choose a different number.' });
       }
+      payload.dishNumber = cleanDishNum;
       try {
         createdItem = await Dish.create(payload);
+        await syncDishNumberCounter(payload.dishNumber);
       } catch (err) {
-        if (err.code === 11000 && (err.keyPattern?.dishNumber || (err.message && err.message.includes('dishNumber')))) {
-          payload.dishNumber = null;
-          continue;
+        if (err.code === 11000) {
+          return res.status(400).json({ error: 'This Dish Number is already assigned to another dish. Please choose a different number.' });
         }
         throw err;
+      }
+    } else {
+      let attempts = 0;
+      while (!createdItem && attempts < 5) {
+        attempts++;
+        payload.dishNumber = await getNextDishNumber();
+        try {
+          createdItem = await Dish.create(payload);
+        } catch (err) {
+          if (err.code === 11000 && (err.keyPattern?.dishNumber || (err.message && err.message.includes('dishNumber')))) {
+            payload.dishNumber = null;
+            continue;
+          }
+          throw err;
+        }
       }
     }
 
@@ -1533,11 +1706,21 @@ app.put(['/api/dishes/:id', '/dishes/:id'], async (req, res) => {
     delete payload.createdAt;
     delete payload.updatedAt;
 
-    // Prevent accidental overwriting of dishNumber with empty value
-    if (!payload.dishNumber || !String(payload.dishNumber).trim()) {
-      delete payload.dishNumber;
-    } else {
-      payload.dishNumber = String(payload.dishNumber).trim();
+    // Validate dishNumber if provided in request body
+    if (req.body.dishNumber !== undefined) {
+      if (!String(req.body.dishNumber).trim()) {
+        return res.status(400).json({ error: 'Dish number cannot be empty' });
+      }
+      const newDishNumber = String(req.body.dishNumber).trim().toUpperCase();
+      // Ensure unique across other dishes
+      const dup = await Dish.findOne({
+        dishNumber: newDishNumber,
+        $nor: [{ _id: targetId }, { id: targetId }]
+      });
+      if (dup) {
+        return res.status(400).json({ error: `This Dish Number is already assigned to another dish (${dup.name}). Please choose a different number.` });
+      }
+      payload.dishNumber = newDishNumber;
     }
 
     if (payload.name) {
@@ -1566,13 +1749,11 @@ app.put(['/api/dishes/:id', '/dishes/:id'], async (req, res) => {
         }));
     }
 
-    // Comprehensive identifier filter: match by _id, id, dishNumber, or ObjectId
+    // Search specifically by ID to avoid mutating unintended documents
     const filter = {
       $or: [
         { _id: targetId },
-        { id: targetId },
-        ...(payload.dishNumber ? [{ dishNumber: payload.dishNumber }] : []),
-        ...(payload.name ? [{ name: payload.name }] : [])
+        { id: targetId }
       ]
     };
     if (mongoose.Types.ObjectId.isValid(targetId) && String(new mongoose.Types.ObjectId(targetId)) === String(targetId)) {
@@ -1587,9 +1768,7 @@ app.put(['/api/dishes/:id', '/dishes/:id'], async (req, res) => {
         const nativeFilter = {
           $or: [
             { _id: new mongoose.Types.ObjectId(targetId) },
-            { _id: targetId },
-            ...(payload.dishNumber ? [{ dishNumber: payload.dishNumber }] : []),
-            ...(payload.name ? [{ name: payload.name }] : [])
+            { _id: targetId }
           ]
         };
         const nativeRes = await Dish.collection.findOneAndUpdate(nativeFilter, { $set: payload }, { returnDocument: 'after' });
@@ -1599,14 +1778,6 @@ app.put(['/api/dishes/:id', '/dishes/:id'], async (req, res) => {
       } catch (nativeErr) {
         console.warn('Native collection findOneAndUpdate notice:', nativeErr.message);
       }
-    }
-
-    // Fallback: update specifically by dishNumber or name to ensure existing record updates
-    if (!updated && payload.dishNumber) {
-      updated = await Dish.findOneAndUpdate({ dishNumber: payload.dishNumber }, { $set: payload }, { new: true });
-    }
-    if (!updated && payload.name) {
-      updated = await Dish.findOneAndUpdate({ name: payload.name }, { $set: payload }, { new: true });
     }
 
     // If dish was not found in MongoDB (e.g. from local cache or new catalog item), insert it!
@@ -1623,12 +1794,19 @@ app.put(['/api/dishes/:id', '/dishes/:id'], async (req, res) => {
         updated = await Dish.create(createPayload);
       } catch (createErr) {
         if (createErr.code === 11000 && (createErr.keyPattern?.dishNumber || (createErr.message && createErr.message.includes('dishNumber')))) {
+          if (req.body.dishNumber) {
+            return res.status(400).json({ error: 'This Dish Number is already assigned to another dish. Please choose a different number.' });
+          }
           createPayload.dishNumber = await getNextDishNumber();
           updated = await Dish.create(createPayload);
         } else {
           throw createErr;
         }
       }
+    }
+
+    if (updated && updated.dishNumber) {
+      await syncDishNumberCounter(updated.dishNumber);
     }
 
     res.json(toJSON(updated));
@@ -1695,6 +1873,7 @@ app.post(['/api/menu-categories', '/menu-categories'], async (req, res) => {
     res.status(400).json({ error: err.message });
   }
 });
+createCRUDRoutes(app, '/api/venues', Venue);
 createCRUDRoutes(app, '/api/suppliers', Supplier);
 createCRUDRoutes(app, '/api/labor-rates', LaborRate);
 createCRUDRoutes(app, '/api/agencies', Agency);
@@ -2823,10 +3002,10 @@ app.post('/api/seed', async (req, res) => {
 
     // 2. Mock Data Definitions
     const initialVenues = [
-      { _id: 'v1', name: 'Royal Grand Ballroom', capacity: 500, price: 150000, address: 'S.G. Highway, Ahmedabad' },
-      { _id: 'v2', name: 'Lakeside Pavilion', capacity: 300, price: 120000, address: 'Kankaria Lake, Ahmedabad' },
-      { _id: 'v3', name: 'Garden Terrace & Lawn', capacity: 800, price: 200000, address: 'Bodakdev, Ahmedabad' },
-      { _id: 'v4', name: 'Elite Banquet Hall', capacity: 150, price: 75000, address: 'C.G. Road, Ahmedabad' }
+      { _id: 'v1', name: 'Royal Grand Ballroom', capacity: 500, price: 150000, address: 'S.G. Highway, Ahmedabad', venueCode: 'VN-RGB-01', contactPerson: 'Mr. Arvind Saxena', contactNumber: '+91 98250 11223', ownerName: 'Rajesh Sharma', ownerContactNumber: '+91 98250 11220', managerName: 'Mr. Arvind Saxena', managerContactNumber: '+91 98250 11223' },
+      { _id: 'v2', name: 'Lakeside Pavilion', capacity: 300, price: 120000, address: 'Kankaria Lake, Ahmedabad', venueCode: 'VN-LKP-02', contactPerson: 'Sanjay Rawal', contactNumber: '+91 98250 33445', ownerName: 'Girish Patel', ownerContactNumber: '+91 98250 33440', managerName: 'Sanjay Rawal', managerContactNumber: '+91 98250 33445' },
+      { _id: 'v3', name: 'Garden Terrace & Lawn', capacity: 800, price: 200000, address: 'Bodakdev, Ahmedabad', venueCode: 'VN-GTL-03', contactPerson: 'Meera Trivedi', contactNumber: '+91 98250 55667', ownerName: 'Naresh Mehta', ownerContactNumber: '+91 98250 55660', managerName: 'Meera Trivedi', managerContactNumber: '+91 98250 55667' },
+      { _id: 'v4', name: 'Elite Banquet Hall', capacity: 150, price: 75000, address: 'C.G. Road, Ahmedabad', venueCode: 'VN-EBH-04', contactPerson: 'Karan Shah', contactNumber: '+91 98250 77889', ownerName: 'Pravin Joshi', ownerContactNumber: '+91 98250 77880', managerName: 'Karan Shah', managerContactNumber: '+91 98250 77889' }
     ];
 
     const initialRawMaterials = [
