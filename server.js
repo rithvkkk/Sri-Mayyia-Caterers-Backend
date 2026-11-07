@@ -847,7 +847,7 @@ const eventSchema = new mongoose.Schema({
   },
   laborAllocations: [laborAllocationSchema],
   billing: {
-    pricePerPlate: { type: Number, default: 800 },
+    pricePerPlate: { type: Number },
     subtotal: { type: Number, default: 0 },
     commissionRate: { type: Number, default: 0 },
     commissionAmount: { type: Number, default: 0 },
@@ -1076,7 +1076,7 @@ const handleEventCreation = async (req, res) => {
     // Automatic Commission & Financial Calculation with Session-Wise Pricing Support
     if (payload.billing) {
       let calculatedSubtotal = 0;
-      const defaultPricePerPlate = Number(payload.billing.pricePerPlate) || 800;
+      const defaultPricePerPlate = Number(payload.billing.pricePerPlate) || 0;
 
       if (Array.isArray(payload.subFunctions) && payload.subFunctions.length > 0) {
         calculatedSubtotal = payload.subFunctions.reduce((sum, sf) => {
@@ -1187,7 +1187,7 @@ const handleEventUpdate = async (req, res) => {
     // Automatic Commission & Financial Calculation with Session-Wise Pricing Support
     if (payload.billing) {
       let calculatedSubtotal = 0;
-      const defaultPricePerPlate = Number(payload.billing.pricePerPlate) || 800;
+      const defaultPricePerPlate = Number(payload.billing.pricePerPlate) || 0;
 
       if (Array.isArray(payload.subFunctions) && payload.subFunctions.length > 0) {
         calculatedSubtotal = payload.subFunctions.reduce((sum, sf) => {
@@ -1315,7 +1315,7 @@ const handleEventPaxUpdate = async (req, res) => {
     // Recalculate billing financial totals
     if (existing.billing) {
       let calculatedSubtotal = 0;
-      const defaultPricePerPlate = Number(existing.billing.pricePerPlate) || 800;
+      const defaultPricePerPlate = Number(existing.billing.pricePerPlate) || 0;
 
       if (Array.isArray(existing.subFunctions) && existing.subFunctions.length > 0) {
         calculatedSubtotal = existing.subFunctions.reduce((sum, sf) => {
