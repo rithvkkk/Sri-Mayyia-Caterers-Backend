@@ -715,7 +715,9 @@ const subFunctionSchema = new mongoose.Schema({
   pricePerPlate: { type: Number }, // Session-specific rate per plate
   menuItems: [{ type: String }], // Array of dish IDs
   clientNotes: { type: String, default: '' },
-  instructions: { type: String, default: '' }
+  instructions: { type: String, default: '' },
+  servingType: { type: String, default: 'Buffet' },
+  serviceStyle: { type: String, default: 'Buffet' }
 }, { _id: false });
 
 const laborAllocationSchema = new mongoose.Schema({
@@ -1258,7 +1260,7 @@ const handleEventPaxUpdate = async (req, res) => {
       return res.status(404).json({ error: 'Event not found' });
     }
 
-    const { subFunctionId, guestCount, pax, pricePerPlate } = req.body;
+    const { subFunctionId, guestCount, pax, pricePerPlate, date, servingType, serviceStyle, startTime, endTime } = req.body;
     const rawCount = guestCount !== undefined ? guestCount : pax;
     const numGuests = parseInt(rawCount, 10);
 
@@ -1285,6 +1287,21 @@ const handleEventPaxUpdate = async (req, res) => {
             if (pricePerPlate !== undefined && !isNaN(Number(pricePerPlate))) {
               updatedSf.pricePerPlate = Number(pricePerPlate);
             }
+            if (date !== undefined && date !== null) {
+              updatedSf.date = String(date).trim();
+            }
+            if (servingType !== undefined || serviceStyle !== undefined) {
+              const st = String(servingType || serviceStyle || 'Buffet').trim();
+              updatedSf.servingType = st;
+              updatedSf.serviceStyle = st;
+            }
+            if (startTime !== undefined) {
+              updatedSf.startTime = startTime;
+              updatedSf.time = startTime;
+            }
+            if (endTime !== undefined) {
+              updatedSf.endTime = endTime;
+            }
             return updatedSf;
           }
           return sf;
@@ -1295,6 +1312,21 @@ const handleEventPaxUpdate = async (req, res) => {
         existing.subFunctions[0].guestCount = numGuests;
         if (pricePerPlate !== undefined && !isNaN(Number(pricePerPlate))) {
           existing.subFunctions[0].pricePerPlate = Number(pricePerPlate);
+        }
+        if (date !== undefined && date !== null) {
+          existing.subFunctions[0].date = String(date).trim();
+        }
+        if (servingType !== undefined || serviceStyle !== undefined) {
+          const st = String(servingType || serviceStyle || 'Buffet').trim();
+          existing.subFunctions[0].servingType = st;
+          existing.subFunctions[0].serviceStyle = st;
+        }
+        if (startTime !== undefined) {
+          existing.subFunctions[0].startTime = startTime;
+          existing.subFunctions[0].time = startTime;
+        }
+        if (endTime !== undefined) {
+          existing.subFunctions[0].endTime = endTime;
         }
       }
       // Recompute total event guest count
