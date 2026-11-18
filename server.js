@@ -714,6 +714,9 @@ const subFunctionSchema = new mongoose.Schema({
   guestCount: { type: Number, default: 100 },
   pricePerPlate: { type: Number }, // Session-specific rate per plate
   menuItems: [{ type: String }], // Array of dish IDs
+  liveStations: [{ type: String }],
+  categoryOrder: [{ type: String }], // Manual category sequence
+  dishOrder: [{ type: String }],     // Manual dish sequence
   clientNotes: { type: String, default: '' },
   instructions: { type: String, default: '' },
   servingType: { type: String, default: 'Buffet' },
